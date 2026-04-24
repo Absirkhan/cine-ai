@@ -1,0 +1,225 @@
+================================================================================
+🎬 CineAI - How to Run Your Web Application
+================================================================================
+
+QUICK START (30 seconds):
+------------------------
+
+1. Open terminal/command prompt
+
+2. Navigate to backend folder:
+   cd cine-ai\backend
+
+3. Run the app:
+   python main.py
+
+4. Open browser:
+   http://localhost:8000
+
+That's it! 🎉
+
+
+WHAT YOU'LL SEE:
+---------------
+
+✅ Web interface with home screen
+✅ Story prompt input
+✅ Genre, tone, duration, aspect ratio selectors
+✅ "Generate Video" button
+✅ Real-time progress tracking
+✅ Generated audio files with AI voices
+✅ Background music matched to moods
+
+
+USING THE APP:
+-------------
+
+1. On the home screen, enter a story prompt like:
+   "A lonely astronaut discovers a glowing crystal on Mars"
+
+2. Select your preferences:
+   - Genre: Sci-Fi
+   - Tone: Cinematic
+   - Duration: 60s
+   - Aspect: 16:9
+
+3. Click "Generate Video"
+
+4. Watch the progress (takes 2-3 minutes):
+   - Phase 1: Generating story and characters (~60 sec)
+   - Phase 2: Creating AI voices (~90 sec)
+
+5. Check the outputs folder:
+   ..\outputs\run_YYYYMMDD_HHMMSS\assets\
+
+   You'll find:
+   - audio_*.mp3 files (AI character voices!)
+   - bgm_*.mp3 files (background music)
+   - JSON files with story data
+
+
+CURRENTLY WORKING:
+-----------------
+
+✅ Story generation with AI (Groq + Llama 3.3-70b)
+✅ Character creation with voices
+✅ Scene breakdown with moods
+✅ Dialogue generation
+✅ AI voice synthesis (ElevenLabs)
+✅ Mood-based music selection
+✅ Web interface
+✅ Real-time progress
+✅ API endpoints
+
+
+NOT YET WORKING:
+---------------
+
+❌ Image generation (Phase 3 - not implemented yet)
+❌ Video composition (Phase 3 - not implemented yet)
+❌ Video preview in browser (Phase 3 needed)
+❌ Edit agent (Phase 5 - not implemented yet)
+
+
+TROUBLESHOOTING:
+---------------
+
+Problem: "Module not found"
+Solution: pip install -r requirements.txt
+
+Problem: "Port 8000 already in use"
+Solution:
+  - Kill process using port 8000
+  - Or edit .env and change PORT=8001
+
+Problem: "API key not found"
+Solution:
+  - Check .env file exists in cine-ai folder (not backend)
+  - Make sure API keys are filled in
+
+Problem: "Frontend not loading"
+Solution:
+  - Make sure frontend folder exists
+  - Check you ran "python main.py" from backend folder
+
+
+ALTERNATIVE WAYS TO RUN:
+------------------------
+
+Option 1 (Windows):
+  cd backend
+  run_server.bat
+
+Option 2 (macOS/Linux):
+  cd backend
+  ./run_server.sh
+
+Option 3 (Manual):
+  cd backend
+  venv\Scripts\activate
+  python main.py
+
+
+API DOCUMENTATION:
+-----------------
+
+While server is running, visit:
+http://localhost:8000/docs
+
+This shows all available API endpoints and lets you test them!
+
+
+TESTING WITHOUT WEB UI:
+----------------------
+
+Want to test the backend without the web interface?
+
+Run: python test_pipeline.py
+
+This runs Phase 1 and 2 from command line.
+
+
+EXAMPLE WORKFLOW:
+----------------
+
+1. Start server: python main.py
+
+2. Open browser: http://localhost:8000
+
+3. Enter prompt: "A robot learns to paint in a quiet studio"
+
+4. Click Generate
+
+5. Wait 2-3 minutes
+
+6. Open outputs folder: ..\outputs\
+
+7. Find latest run: run_20260423_160000\
+
+8. Play audio: assets\audio_scene_001_dialogue_00.mp3
+
+9. You'll hear AI voice speaking your story!
+
+
+WHAT'S DIFFERENT FROM test_pipeline.py?
+---------------------------------------
+
+test_pipeline.py:
+  - Command line interface
+  - Manual prompt entry
+  - Console output
+  - Testing/debugging tool
+
+python main.py:
+  - Web browser interface
+  - Beautiful UI
+  - Real-time progress
+  - Production application
+
+
+NEXT STEPS AFTER RUNNING:
+-------------------------
+
+1. ✅ Verify it works with a simple story
+
+2. ✅ Try different genres and tones
+
+3. ✅ Listen to the generated audio files
+
+4. ✅ Review the JSON output to see story structure
+
+5. 📝 Continue development:
+   - Implement Phase 3 (video generation)
+   - Implement Phase 5 (edit agent)
+
+
+IMPORTANT FILES:
+---------------
+
+main.py - FastAPI web server
+orchestrator.py - Pipeline execution manager
+test_pipeline.py - Command line testing tool
+.env - API keys configuration (in parent folder!)
+
+
+NEED HELP?
+---------
+
+📖 RUN_APP.md - Detailed running guide
+📖 TESTING_GUIDE.md - Complete testing instructions
+📖 COMMANDS.md - All commands reference
+📖 README.md - Project overview
+
+
+READY TO START?
+--------------
+
+cd backend
+python main.py
+
+Then open http://localhost:8000
+
+Enjoy creating AI-powered stories! 🎬🚀
+
+
+================================================================================

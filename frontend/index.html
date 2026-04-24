@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>CineAI — AI Video Generation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css"/>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="/static/primitives.jsx"></script>
+<script type="text/babel" src="/static/screen-home.jsx"></script>
+<script type="text/babel" src="/static/screen-progress.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState } = React;
+
+// API Base URL
+const API_BASE = window.location.origin;
+
+function App() {
+  const [currentScreen, setCurrentScreen] = useState('home');
+  const [runId, setRunId] = useState(null);
+  const [wsConnection, setWsConnection] = useState(null);
+
+  const handleGenerate = async ({ prompt, genre, tone, duration, aspect }) => {
+    try {
+      // Call backend API
+      const response = await fetch(`${API_BASE}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, genre, tone, duration, aspect })
+      });
+
+      const data = await response.json();
+
+      if (data.run_id) {
+        setRunId(data.run_id);
+        setCurrentScreen('progress');
+
+        // Connect WebSocket for real-time updates
+        const ws = new WebSocket(`ws://localhost:8000/ws/progress/${data.run_id}`);
+
+        ws.onopen = () => {
+          console.log('WebSocket connected');
+        };
+
+        ws.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          console.log('Progress update:', message);
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+
+        setWsConnection(ws);
+      }
+    } catch (error) {
+      console.error('Generation error:', error);
+      alert('Failed to start generation. Make sure the backend is running.');
+    }
+  };
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {currentScreen === 'home' && (
+        <HomeScreen onGenerate={handleGenerate} />
+      )}
+      {currentScreen === 'progress' && (
+        <ProgressScreen runId={runId} />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
