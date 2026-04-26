@@ -369,6 +369,164 @@ async def test_image_generation(prompt: str = "a beautiful sunset over mountains
         }
 
 
+@app.post("/api/test/animator")
+async def test_animator(image_path: Optional[str] = None, duration: float = 3.0):
+    """Test video animation independently using a test image"""
+    try:
+        from phase3_video.animator import VideoAnimator
+        from PIL import Image
+        import io
+
+        run_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        print(f"\n{'='*60}")
+        print(f"Testing animator with duration: {duration}s")
+        print(f"{'='*60}\n")
+
+        # If no image provided, create a simple test image
+        if not image_path or not Path(image_path).exists():
+            print("  Creating test image...")
+            from shared.utils import generate_asset_filename
+
+            # Create a simple colored test image
+            test_image = Image.new('RGB', (1024, 576), color=(100, 150, 200))
+            test_image_path = generate_asset_filename(run_id, "image", "test_scene", "png")
+            test_image.save(test_image_path, "PNG")
+            image_path = str(test_image_path)
+            print(f"  ✓ Test image created: {Path(test_image_path).name}")
+
+        # Test animator
+        animator = VideoAnimator(fps=24)
+        video_path = animator.create_scene_video(
+            image_path=image_path,
+            duration=duration,
+            run_id=run_id,
+            scene_id="test_scene",
+            effect="random"
+        )
+
+        return {
+            "status": "success",
+            "video_path": video_path,
+            "message": "Animation created successfully",
+            "asset_url": f"/api/runs/{run_id}/assets/{Path(video_path).name}",
+            "duration": duration
+        }
+
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@app.post("/api/test/compositor")
+async def test_compositor():
+    """Test video compositor with mock scene data"""
+    try:
+        from phase3_video.compositor import VideoCompositor
+        from shared.schema import PipelineState, Scene, Dialogue, Character, VoiceParams, Story
+        from shared.utils import generate_asset_filename
+        from PIL import Image
+        from pydub import AudioSegment
+        from pydub.generators import Sine
+        import shutil
+
+        run_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        print(f"\n{'='*60}")
+        print(f"Testing compositor with mock data")
+        print(f"{'='*60}\n")
+
+        # Create mock pipeline state with test assets
+        state = PipelineState(
+            run_id=run_id,
+            version=1,
+            timestamp=datetime.utcnow().isoformat(),
+            user_prompt="Test video composition",
+            user_params={"aspect": "16:9"},
+            phase_status={}
+        )
+
+        # Create 2 test scenes with mock assets
+        for i in range(2):
+            scene_id = f"scene_{i:03d}"
+
+            # Create test image
+            test_image = Image.new('RGB', (1024, 576),
+                                  color=(50 + i*100, 100, 150 + i*50))
+            image_path = generate_asset_filename(run_id, "image", scene_id, "png")
+            test_image.save(image_path, "PNG")
+
+            # Create test video (animated)
+            from phase3_video.animator import VideoAnimator
+            animator = VideoAnimator(fps=24)
+            video_path = animator.create_scene_video(
+                image_path=str(image_path),
+                duration=2.0,
+                run_id=run_id,
+                scene_id=scene_id,
+                effect="zoom_in" if i == 0 else "pan_right"
+            )
+
+            # Create test audio (simple beep)
+            audio_segment = Sine(440 + i*100).to_audio_segment(duration=2000)
+            audio_path = generate_asset_filename(run_id, "audio", f"{scene_id}_dialogue_00", "mp3")
+            audio_segment.export(audio_path, format="mp3")
+
+            # Create test BGM (copy the dialogue audio for simplicity)
+            bgm_path = generate_asset_filename(run_id, "bgm", f"{scene_id}_calm", "mp3")
+            shutil.copy(audio_path, bgm_path)
+
+            # Create scene with mock dialogue
+            dialogue = Dialogue(
+                character="Narrator",
+                text=f"This is test scene {i+1}",
+                audio_file=str(audio_path),
+                duration_ms=2000
+            )
+
+            scene = Scene(
+                id=scene_id,
+                title=f"Test Scene {i+1}",
+                description=f"Testing scene {i+1}",
+                mood="calm",
+                dialogue=[dialogue],
+                visual_prompt="test prompt",
+                duration_ms=2000,
+                image_file=str(image_path),
+                video_file=str(video_path),
+                bgm_file=str(bgm_path)
+            )
+
+            state.scenes.append(scene)
+
+        print(f"  Created {len(state.scenes)} test scenes")
+
+        # Test compositor
+        compositor = VideoCompositor()
+        final_video = compositor.compose_final_video(state)
+
+        return {
+            "status": "success",
+            "final_video_path": final_video,
+            "message": "Video composition successful",
+            "asset_url": f"/api/runs/{run_id}/assets/{Path(final_video).name}",
+            "scenes_count": len(state.scenes),
+            "total_duration": sum(s.duration_ms for s in state.scenes) / 1000
+        }
+
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
 # Serve frontend
 frontend_dir = Path(__file__).parent.parent / "frontend"
 if frontend_dir.exists():
