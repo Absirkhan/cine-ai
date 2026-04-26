@@ -3,7 +3,7 @@ CineAI FastAPI Application
 Main entry point for the web application
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -13,6 +13,7 @@ import asyncio
 import json
 from pathlib import Path
 from datetime import datetime
+import shutil
 
 import config
 from orchestrator import PipelineOrchestrator
@@ -87,6 +88,15 @@ class EditRequest(BaseModel):
 class UndoRequest(BaseModel):
     run_id: str
     steps: int = 1
+
+
+class AnimateImageResponse(BaseModel):
+    status: str
+    video_path: str
+    asset_url: str
+    effect: str
+    duration: float
+    message: str
 
 
 # API Routes
@@ -324,6 +334,108 @@ async def get_edit_history(run_id: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/animate-image", response_model=AnimateImageResponse)
+async def animate_image(
+    image: UploadFile = File(...),
+    duration: float = Form(3.0),
+    effect: str = Form("random")
+):
+    """
+    Upload an image and get back an animated video with Ken Burns effects
+
+    Args:
+        image: Image file to animate (JPEG, PNG)
+        duration: Duration of the video in seconds (default: 3.0)
+        effect: Animation effect - zoom_in, zoom_out, pan_left, pan_right, or random (default: random)
+
+    Returns:
+        AnimateImageResponse with video path and download URL
+    """
+    try:
+        from phase3_video.animator import VideoAnimator
+        from shared.utils import generate_asset_filename
+
+        # Validate effect type
+        valid_effects = ["random", "zoom_in", "zoom_out", "pan_left", "pan_right"]
+        if effect not in valid_effects:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid effect. Must be one of: {', '.join(valid_effects)}"
+            )
+
+        # Validate duration
+        if duration <= 0 or duration > 30:
+            raise HTTPException(
+                status_code=400,
+                detail="Duration must be between 0 and 30 seconds"
+            )
+
+        # Validate image file type
+        allowed_types = ["image/jpeg", "image/png", "image/jpg"]
+        if image.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type. Must be JPEG or PNG. Got: {image.content_type}"
+            )
+
+        # Generate unique run_id for this animation
+        run_id = f"animate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        print(f"\n{'='*60}")
+        print(f"🎨 Animating uploaded image")
+        print(f"  Run ID: {run_id}")
+        print(f"  Duration: {duration}s")
+        print(f"  Effect: {effect}")
+        print(f"{'='*60}\n")
+
+        # Save uploaded image temporarily
+        file_extension = "png" if "png" in image.content_type else "jpg"
+        temp_image_path = generate_asset_filename(
+            run_id,
+            "uploaded_image",
+            "source",
+            file_extension
+        )
+
+        with open(temp_image_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+
+        print(f"  ✓ Image saved: {Path(temp_image_path).name}")
+
+        # Create animator and generate video
+        animator = VideoAnimator(fps=24)
+        video_path = animator.create_scene_video(
+            image_path=str(temp_image_path),
+            duration=duration,
+            run_id=run_id,
+            scene_id="animated",
+            effect=effect
+        )
+
+        print(f"  ✓ Video created: {Path(video_path).name}")
+        print(f"\n{'='*60}\n")
+
+        return AnimateImageResponse(
+            status="success",
+            video_path=str(video_path),
+            asset_url=f"/api/runs/{run_id}/assets/{Path(video_path).name}",
+            effect=effect,
+            duration=duration,
+            message=f"Image animated successfully with {effect} effect"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error animating image: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to animate image: {str(e)}"
+        )
 
 
 # Test endpoints for individual phases
