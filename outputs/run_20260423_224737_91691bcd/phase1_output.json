@@ -1,0 +1,153 @@
+{
+  "run_id": "run_20260423_224738_ad96b3e8",
+  "version": 1,
+  "timestamp": "2026-04-23T22:47:47.467926",
+  "user_prompt": "A lonely astronaut discovers a glowing crystal on Mars. As she picks it up, the rocks around her start to hum and pulse with light. She whispers: \"It's\u2026 alive.\"",
+  "user_params": {
+    "genre": "Sci-Fi",
+    "tone": "Cinematic",
+    "duration": "60s",
+    "aspect": "16:9"
+  },
+  "story": {
+    "title": "Red Planet Awakening",
+    "summary": "A lone astronaut on Mars discovers a glowing crystal that brings the planet's rocks to life, sparking a profound connection. As she explores this phenomenon, she uncovers the secrets of the Martian landscape. The astronaut's journey transforms her understanding of solitude and the universe.",
+    "genre": "Sci-Fi",
+    "tone": "Cinematic",
+    "total_duration_ms": 60000
+  },
+  "scenes": [
+    {
+      "id": "scene_000",
+      "description": "A vast, barren Martian landscape under a crimson sky, with the astronaut standing alone in the distance, her spacesuit a stark contrast to the alien environment. The camera pans down to her footprints, emphasizing her isolation.",
+      "dialogue": [
+        {
+          "character": "Astrid",
+          "text": "I've been walking for hours, yet the landscape remains unchanged.",
+          "duration_ms": null,
+          "audio_file": null
+        },
+        {
+          "character": "Astrid",
+          "text": "Just me, the dust, and this endless crimson sky.",
+          "duration_ms": null,
+          "audio_file": null
+        }
+      ],
+      "visual_prompt": "Generate a cinematic, painterly image of a barren Martian landscape under a deep crimson sky. The atmosphere is thick with a dusty, orange-brown haze, casting a warm glow over the desolate terrain. In the distance, a lone astronaut stands, her sleek white spacesuit a stark contrast to the alien environment. The camera pans down to her footprints, emphasizing her isolation. The composition is set in a 16:9 aspect ratio, with the astronaut positioned near the center, slightly off to the right. The landscape stretches out to the horizon, with rocky outcroppings and sand dunes undulating in the distance. The lighting is soft and diffused, with long shadows stretching across the ground, accentuating the sense of solitude and vastness. The overall mood is one of haunting beauty and eerie silence.",
+      "mood": "calm",
+      "duration_ms": 10000,
+      "image_file": null,
+      "video_file": null,
+      "bgm_file": null
+    },
+    {
+      "id": "scene_001",
+      "description": "A close-up of the astronaut's gloved hand reaching for a glowing crystal nestled among the rocks. As her fingers make contact, the rocks around her begin to hum softly and pulse with a gentle, ethereal light. The camera zooms out to reveal the astronaut's awestruck expression.",
+      "dialogue": [
+        {
+          "character": "Astrid",
+          "text": "What is this?",
+          "duration_ms": null,
+          "audio_file": null
+        },
+        {
+          "character": "Astrid",
+          "text": "It's... humming.",
+          "duration_ms": null,
+          "audio_file": null
+        },
+        {
+          "character": "Astrid",
+          "text": "Like the planet itself is alive.",
+          "duration_ms": null,
+          "audio_file": null
+        }
+      ],
+      "visual_prompt": "Create a cinematic, painterly image of a gloved hand reaching for a glowing crystal nestled among rocks, with a soft, ethereal light pulsing from the surrounding stones. The visual style should evoke a sense of wonder and discovery, with warm, golden lighting and a subtle, humming atmosphere. The composition should be framed in 16:9 aspect ratio, with the hand and crystal at the center, and the rocks and light fading into the background. The camera should be zoomed out to capture the astronaut's arm and the surrounding environment, with a shallow depth of field to blur the distant rocks. The glowing crystal should be vibrant and radiant, with a gentle, pulsing glow that illuminates the nearby stones. The rocks should be weathered and textured, with a mix of rough, jagged edges and smooth, rounded surfaces. The overall mood should be one of awe and curiosity, with a sense of mystery and discovery.",
+      "mood": "mysterious",
+      "duration_ms": 20000,
+      "image_file": null,
+      "video_file": null,
+      "bgm_file": null
+    },
+    {
+      "id": "scene_002",
+      "description": "The astronaut, now kneeling among the pulsing rocks, whispers 'It's\u2026 alive' as the camera spins around her, capturing the vibrant, luminescent landscape. The rocks' hum grows louder, and their light intensifies, enveloping the astronaut in an otherworldly glow.",
+      "dialogue": [
+        {
+          "character": "Astrid",
+          "text": "It's... alive",
+          "duration_ms": null,
+          "audio_file": null
+        },
+        {
+          "character": "Narrator",
+          "text": "In this desolate yet vibrant world",
+          "duration_ms": null,
+          "audio_file": null
+        },
+        {
+          "character": "Astrid",
+          "text": "I'm not alone",
+          "duration_ms": null,
+          "audio_file": null
+        }
+      ],
+      "visual_prompt": "Generate a cinematic, painterly image of a vibrant, luminescent landscape at dusk, with a kneeling astronaut figure in the center, set against a backdrop of pulsing, iridescent rocks. The visual style should evoke a sense of wonder and discovery, with soft brushstrokes and delicate color gradations. Lighting is ethereal, with an otherworldly glow emanating from the rocks, casting an intense, pulsing light on the surroundings. Atmosphere is mystical, with a sense of anticipation and awe. Composition is tailored to 16:9 aspect ratio, with the astronaut figure positioned off-center, surrounded by the glowing rocks, and the camera spinning around her, capturing the dynamic movement. Incorporate subtle hum lines and gentle, swirling patterns to convey the rocks' energy and life. Colors are vivid, with shades of blue, purple, and pink, blending seamlessly into the warm, golden tones of the dusk sky.",
+      "mood": "dramatic",
+      "duration_ms": 15000,
+      "image_file": null,
+      "video_file": null,
+      "bgm_file": null
+    },
+    {
+      "id": "scene_003",
+      "description": "A wide shot of the Martian landscape, now teeming with life and light. The astronaut stands up, her figure silhouetted against the vibrant backdrop, as the hum of the rocks fades into a gentle, soothing melody. The camera ascends, showing the planet's curvature and the stars beyond, symbolizing the astronaut's newfound connection to the universe.",
+      "dialogue": [
+        {
+          "character": "Astrid",
+          "text": "I never thought I'd find home so far away",
+          "duration_ms": null,
+          "audio_file": null
+        },
+        {
+          "character": "Astrid",
+          "text": "But here, I am one with the universe",
+          "duration_ms": null,
+          "audio_file": null
+        }
+      ],
+      "visual_prompt": "Generate a cinematic, painterly image of the Martian landscape at dusk, with a warm, vibrant color palette and soft, golden lighting. The atmosphere is serene, with a gentle, soothing mist hovering above the terrain. In the distance, the curvature of the planet stretches towards the horizon, meeting a starry night sky. The rocks and terrain are covered in a lush, alien vegetation, with glowing, iridescent plants scattered throughout. The composition is set in a 16:9 aspect ratio, with the astronaut's silhouetted figure standing in the foreground, set against the breathtaking backdrop. The camera's perspective ascends, capturing the vastness of the landscape and the stars beyond, conveying a sense of wonder and connection to the universe. The hum of the rocks is visually represented by a subtle, pulsing glow emanating from the terrain, fading into a gentle, soothing ambiance.",
+      "mood": "upbeat",
+      "duration_ms": 15000,
+      "image_file": null,
+      "video_file": null,
+      "bgm_file": null
+    }
+  ],
+  "characters": [
+    {
+      "name": "Astrid",
+      "role": "protagonist",
+      "voice_params": {
+        "gender": "female",
+        "tone": "calm",
+        "accent": "neutral",
+        "speed": 1.0,
+        "pitch": 1.0
+      },
+      "visual_description": "Astrid is a female astronaut in her mid-30s, with short, dark hair and piercing green eyes. She wears a sleek, white spacesuit with a gold visor, and has a fit, athletic build. Her expression is often contemplative, with a mix of curiosity and wonder."
+    }
+  ],
+  "audio_manifest": null,
+  "final_video_path": null,
+  "phase_status": {
+    "script": "complete",
+    "audio": "pending",
+    "video": "pending",
+    "web": "pending",
+    "edit": "pending"
+  },
+  "errors": []
+}

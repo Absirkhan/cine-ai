@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(python -m http.server:*)",
+      "Bash(python:*)",
+      "Bash(if [ -d \"venv\" ])",
+      "Bash(then echo \"Virtual environment exists\")",
+      "Bash(else echo \"Virtual environment NOT found - need to create\")",
+      "Bash(fi)",
+      "Bash(chmod:*)",
+      "Bash(timeout 5 python:*)",
+      "Bash(cat:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
