@@ -534,6 +534,200 @@ async def test_animator(image_path: Optional[str] = None, duration: float = 3.0)
         }
 
 
+@app.post("/api/test/av-sync")
+async def test_av_sync():
+    """
+    Test Audio-Video synchronization with detailed metrics
+    Creates test scenes with timed dialogue and BGM, then validates sync
+    """
+    try:
+        from phase3_video.compositor import VideoCompositor
+        from phase2_audio.timing import build_timing_manifest, get_audio_duration
+        from shared.schema import PipelineState, Scene, Dialogue, Character, VoiceParams, Story
+        from shared.utils import generate_asset_filename
+        from PIL import Image
+        from pydub import AudioSegment
+        from pydub.generators import Sine
+        import shutil
+        from moviepy.editor import VideoFileClip
+
+        run_id = f"av_sync_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        print(f"\n{'='*60}")
+        print(f"🎬 Testing A/V Synchronization")
+        print(f"  Run ID: {run_id}")
+        print(f"{'='*60}\n")
+
+        # Create mock pipeline state
+        state = PipelineState(
+            run_id=run_id,
+            version=1,
+            timestamp=datetime.utcnow().isoformat(),
+            user_prompt="A/V sync test",
+            user_params={"aspect": "16:9"},
+            phase_status={}
+        )
+
+        # Create test scenes with varying durations
+        test_durations = [1500, 2500, 1800]  # milliseconds
+        sync_metrics = []
+
+        for i, duration_ms in enumerate(test_durations):
+            scene_id = f"scene_{i:03d}"
+            duration_sec = duration_ms / 1000
+
+            print(f"📦 Creating test scene {i+1} (duration: {duration_sec}s)")
+
+            # Create test image
+            test_image = Image.new('RGB', (1024, 576),
+                                  color=(50 + i*80, 100 + i*30, 150 + i*40))
+            image_path = generate_asset_filename(run_id, "image", scene_id, "png")
+            test_image.save(image_path, "PNG")
+            print(f"  ✓ Image created")
+
+            # Create animated video with EXACT duration
+            from phase3_video.animator import VideoAnimator
+            animator = VideoAnimator(fps=24)
+            video_path = animator.create_scene_video(
+                image_path=str(image_path),
+                duration=duration_sec,
+                run_id=run_id,
+                scene_id=scene_id,
+                effect=["zoom_in", "pan_right", "zoom_out"][i]
+            )
+            print(f"  ✓ Video created: {duration_sec}s")
+
+            # Create dialogue audio with EXACT duration
+            audio_segment = Sine(440 + i*200).to_audio_segment(duration=duration_ms)
+            audio_path = generate_asset_filename(run_id, "audio", f"{scene_id}_dialogue_00", "mp3")
+            audio_segment.export(audio_path, format="mp3")
+
+            # Measure actual audio duration
+            actual_audio_ms = get_audio_duration(str(audio_path))
+            print(f"  ✓ Audio created: {actual_audio_ms}ms (target: {duration_ms}ms)")
+
+            # Create BGM (lower frequency)
+            bgm_segment = Sine(220).to_audio_segment(duration=duration_ms)
+            bgm_path = generate_asset_filename(run_id, "bgm", f"{scene_id}_calm", "mp3")
+            bgm_segment.export(bgm_path, format="mp3")
+            print(f"  ✓ BGM created")
+
+            # Create dialogue with timing metadata
+            dialogue = Dialogue(
+                character=f"Speaker{i+1}",
+                text=f"Test dialogue for scene {i+1} with {duration_sec}s duration",
+                audio_file=str(audio_path),
+                duration_ms=actual_audio_ms
+            )
+
+            # Create scene
+            scene = Scene(
+                id=scene_id,
+                description=f"A/V sync test scene {i+1}",
+                mood="calm",
+                dialogue=[dialogue],
+                visual_prompt="test visual",
+                duration_ms=duration_ms,
+                image_file=str(image_path),
+                video_file=str(video_path),
+                bgm_file=str(bgm_path)
+            )
+
+            state.scenes.append(scene)
+
+            # Calculate sync metrics for this scene
+            sync_metrics.append({
+                "scene_id": scene_id,
+                "target_duration_ms": duration_ms,
+                "actual_audio_ms": actual_audio_ms,
+                "sync_delta_ms": abs(actual_audio_ms - duration_ms),
+                "video_path": str(video_path),
+                "audio_path": str(audio_path),
+                "bgm_path": str(bgm_path)
+            })
+
+        print(f"\n{'='*60}")
+        print(f"🎵 Building timing manifest...")
+        print(f"{'='*60}\n")
+
+        # Build timing manifest (this tests the A/V sync timing system)
+        timing_manifest = build_timing_manifest(state)
+
+        print(f"Timing Manifest:")
+        print(f"  Total scenes: {len(state.scenes)}")
+        print(f"  Total dialogue segments: {len(timing_manifest.dialogue_segments)}")
+        print(f"  Total duration: {timing_manifest.total_duration_ms}ms")
+        print(f"\nDialogue timeline:")
+        for seg in timing_manifest.dialogue_segments:
+            print(f"  - {seg['character']}: {seg['start_ms']}ms → {seg['end_ms']}ms")
+
+        print(f"\n{'='*60}")
+        print(f"🎬 Compositing final video with A/V sync...")
+        print(f"{'='*60}\n")
+
+        # Compose final video (this performs the actual A/V synchronization)
+        compositor = VideoCompositor()
+        final_video = compositor.compose_final_video(state)
+
+        # Verify final video duration
+        with VideoFileClip(final_video) as clip:
+            final_duration_sec = clip.duration
+            final_duration_ms = int(final_duration_sec * 1000)
+
+        print(f"\n{'='*60}")
+        print(f"✅ A/V Sync Test Complete")
+        print(f"{'='*60}\n")
+
+        # Calculate total expected duration
+        expected_total_ms = sum(s.duration_ms for s in state.scenes)
+        sync_accuracy = abs(final_duration_ms - expected_total_ms)
+
+        print(f"Final Video Metrics:")
+        print(f"  Expected duration: {expected_total_ms}ms ({expected_total_ms/1000}s)")
+        print(f"  Actual duration:   {final_duration_ms}ms ({final_duration_sec}s)")
+        print(f"  Sync accuracy:     ±{sync_accuracy}ms")
+        print(f"  Status: {'✓ SYNCED' if sync_accuracy < 100 else '⚠ DRIFT DETECTED'}")
+
+        return {
+            "status": "success",
+            "av_sync_status": "synced" if sync_accuracy < 100 else "drift_detected",
+            "final_video_path": final_video,
+            "asset_url": f"/api/runs/{run_id}/assets/{Path(final_video).name}",
+            "sync_metrics": {
+                "scenes_count": len(state.scenes),
+                "expected_duration_ms": expected_total_ms,
+                "actual_duration_ms": final_duration_ms,
+                "sync_accuracy_ms": sync_accuracy,
+                "per_scene_metrics": sync_metrics
+            },
+            "timing_manifest": {
+                "total_duration_ms": timing_manifest.total_duration_ms,
+                "dialogue_segments": len(timing_manifest.dialogue_segments),
+                "dialogue_timeline": [
+                    {
+                        "character": seg["character"],
+                        "start_ms": seg["start_ms"],
+                        "end_ms": seg["end_ms"],
+                        "duration_ms": seg["end_ms"] - seg["start_ms"]
+                    }
+                    for seg in timing_manifest.dialogue_segments
+                ]
+            },
+            "message": f"A/V sync test completed. Sync accuracy: ±{sync_accuracy}ms"
+        }
+
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"\n❌ Error during A/V sync test:")
+        print(error_trace)
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": error_trace
+        }
+
+
 @app.post("/api/test/compositor")
 async def test_compositor():
     """Test video compositor with mock scene data"""
@@ -602,7 +796,6 @@ async def test_compositor():
 
             scene = Scene(
                 id=scene_id,
-                title=f"Test Scene {i+1}",
                 description=f"Testing scene {i+1}",
                 mood="calm",
                 dialogue=[dialogue],
