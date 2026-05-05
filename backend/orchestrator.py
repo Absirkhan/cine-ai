@@ -210,26 +210,118 @@ class PipelineOrchestrator:
 
     def get_run_status(self, run_id: str) -> Optional[Dict[str, Any]]:
         """Get current status of a run"""
-        if run_id in self.active_runs:
-            return self.active_runs[run_id]
 
-        # Check if run exists in outputs
+        # Check active runs first
+        if run_id in self.active_runs:
+            active_run = self.active_runs[run_id]
+
+            # Convert active run format to frontend format
+            current_phase = active_run.get("phase", "initializing")
+            progress = active_run.get("progress", 0)
+
+            # Build phase states based on current progress
+            phases = {
+                "script": {"status": "pending", "progress": 0, "duration": "—", "substeps": []},
+                "audio": {"status": "pending", "progress": 0, "duration": "—", "substeps": []},
+                "video": {"status": "pending", "progress": 0, "duration": "—", "substeps": []},
+                "web": {"status": "pending", "progress": 0, "duration": "—", "substeps": []},
+                "edit": {"status": "pending", "progress": 0, "duration": "—", "substeps": []},
+            }
+
+            # Update phase states based on current phase
+            if current_phase == "script" or current_phase == "initializing":
+                phases["script"]["status"] = "running"
+                phases["script"]["progress"] = progress
+            elif current_phase == "audio":
+                phases["script"]["status"] = "complete"
+                phases["script"]["progress"] = 100
+                phases["audio"]["status"] = "running"
+                phases["audio"]["progress"] = progress
+            elif current_phase == "video":
+                phases["script"]["status"] = "complete"
+                phases["script"]["progress"] = 100
+                phases["audio"]["status"] = "complete"
+                phases["audio"]["progress"] = 100
+                phases["video"]["status"] = "running"
+                phases["video"]["progress"] = progress
+            elif current_phase == "completed":
+                phases["script"]["status"] = "complete"
+                phases["script"]["progress"] = 100
+                phases["audio"]["status"] = "complete"
+                phases["audio"]["progress"] = 100
+                phases["video"]["status"] = "complete"
+                phases["video"]["progress"] = 100
+
+            return {
+                "run_id": run_id,
+                "status": active_run.get("status", "running"),
+                "phases": phases,
+                "metadata": {
+                    "prompt": active_run.get("user_prompt", ""),
+                    "started_at": active_run.get("started_at", ""),
+                }
+            }
+
+        # Check if run exists in outputs (completed runs)
         run_dir = config.OUTPUTS_DIR / run_id
         if run_dir.exists():
-            # Try to load from saved output
-            output_file = run_dir / "phase2_output.json"
+            # Try to load from saved output (phase3 > phase2 > phase1)
+            output_file = run_dir / "phase3_output.json"
+            if not output_file.exists():
+                output_file = run_dir / "phase2_output.json"
             if not output_file.exists():
                 output_file = run_dir / "phase1_output.json"
 
             if output_file.exists():
                 with open(output_file, "r") as f:
                     data = json.load(f)
+
+                    # Determine which phases are complete based on file existence
+                    has_phase1 = (run_dir / "phase1_output.json").exists()
+                    has_phase2 = (run_dir / "phase2_output.json").exists()
+                    has_phase3 = (run_dir / "phase3_output.json").exists()
+
+                    phases = {
+                        "script": {
+                            "status": "complete" if has_phase1 else "pending",
+                            "progress": 100 if has_phase1 else 0,
+                            "duration": "—",
+                            "substeps": ['Scene graph', 'Dialogue', 'Shotlist']
+                        },
+                        "audio": {
+                            "status": "complete" if has_phase2 else "pending",
+                            "progress": 100 if has_phase2 else 0,
+                            "duration": "—",
+                            "substeps": ['Voice casting', 'Narration', 'SFX', 'Score']
+                        },
+                        "video": {
+                            "status": "complete" if has_phase3 else "pending",
+                            "progress": 100 if has_phase3 else 0,
+                            "duration": "—",
+                            "substeps": ['Storyboard', 'Keyframes', 'Interpolation', 'Compositing']
+                        },
+                        "web": {
+                            "status": "pending",
+                            "progress": 0,
+                            "duration": "—",
+                            "substeps": ['Player config', 'Captions', 'Share links']
+                        },
+                        "edit": {
+                            "status": "pending",
+                            "progress": 0,
+                            "duration": "—",
+                            "substeps": ['Intent parser', 'Patch planner']
+                        },
+                    }
+
                     return {
-                        "status": "completed",
-                        "phase": data.get("phase_status", {}),
-                        "progress": 100,
                         "run_id": run_id,
-                        "timestamp": data.get("timestamp")
+                        "status": "completed",
+                        "phases": phases,
+                        "metadata": {
+                            "prompt": data.get("user_prompt", ""),
+                            "started_at": data.get("timestamp", ""),
+                        }
                     }
 
         return None

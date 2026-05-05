@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Icon, TopNav } from '../components/primitives';
 import type { Scene, Version } from '../types';
-import { getVideoOutput, getVersionHistory } from '../services/api';
+import { getVideoOutput, getVersionHistory, revertToVersion } from '../services/api';
 
 const Preview: React.FC = () => {
   const params = useParams<{ jobId: string }>();
@@ -125,15 +125,51 @@ const Preview: React.FC = () => {
     };
   }, [videoRef.current]);
 
-  const activateVersion = (id: string) => {
-    // In a real app, you might want to call an API to activate the version
-    // For now, just update the local state
-    setVersions(vs => vs.map(v => ({ ...v, active: v.id === id })));
-  };
+  const undoTo = async (id: string) => {
+    if (!jobId) return;
 
-  const undoTo = (id: string) => {
-    // Undo = roll the "current" flag back to this version, remove nothing from history
-    activateVersion(id);
+    try {
+      // Find the version number from the id
+      const version = versions.find(v => v.id === id);
+      if (!version || !('version_number' in version)) {
+        console.error('Version not found or missing version_number');
+        return;
+      }
+
+      // Call backend to revert
+      console.log(`Reverting to version ${version.version_number}...`);
+      await revertToVersion(jobId, version.version_number as number);
+
+      // Reload the video and version history
+      const [output, versionsData] = await Promise.all([
+        getVideoOutput(jobId),
+        getVersionHistory(jobId),
+      ]);
+
+      // Update state
+      setOutputData(output);
+      if (output.scenes) {
+        setScenes(output.scenes);
+      }
+      if (versionsData.versions) {
+        setVersions(versionsData.versions);
+      }
+
+      // Force reload the video by changing the URL
+      const timestamp = new Date().getTime();
+      setVideoUrl(`/api/runs/${jobId}/assets/final_output.mp4?t=${timestamp}`);
+
+      // Reload video element
+      if (videoRef.current) {
+        videoRef.current.load();
+      }
+
+      console.log(`Successfully reverted to version ${version.version_number}`);
+    } catch (error) {
+      console.error('Failed to revert version:', error);
+      // Show error to user (you could add a toast notification here)
+      alert('Failed to revert to version. Please try again.');
+    }
   };
 
   const fmt = (s: number) => {
