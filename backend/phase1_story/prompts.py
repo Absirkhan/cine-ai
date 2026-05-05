@@ -19,9 +19,18 @@ INSTRUCTIONS:
 2. Break the story into 3-5 distinct scenes
 3. Each scene should have:
    - Clear visual description for AI image generation
-   - Specific mood for background music selection
+   - Specific mood for background music selection (MUST be one of: calm, tense, upbeat, mysterious, dramatic, sad, ambient)
    - Estimated duration that adds up to target duration
 4. Ensure visual variety and narrative arc (setup → conflict → resolution)
+
+IMPORTANT: The "mood" field MUST be EXACTLY one of these values (lowercase):
+- calm
+- tense
+- upbeat
+- mysterious
+- dramatic
+- sad
+- ambient
 
 Respond with ONLY a JSON object in this exact format:
 ```json
@@ -31,7 +40,7 @@ Respond with ONLY a JSON object in this exact format:
   "scenes": [
     {{
       "description": "Detailed scene description",
-      "mood": "calm|tense|upbeat|mysterious|dramatic|sad",
+      "mood": "calm",
       "duration_s": 15
     }}
   ]

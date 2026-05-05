@@ -109,10 +109,38 @@ class StoryAgent:
         # Create scene objects
         scenes = []
         for idx, scene_data in enumerate(result["scenes"]):
+            # Validate and map mood to valid MoodType
+            raw_mood = scene_data.get("mood", "ambient").lower()
+
+            # Map invalid moods to valid ones
+            mood_mapping = {
+                "playful": "upbeat",
+                "happy": "upbeat",
+                "cheerful": "upbeat",
+                "scary": "tense",
+                "suspenseful": "mysterious",
+                "melancholic": "sad",
+                "somber": "sad",
+                "peaceful": "calm",
+                "serene": "calm",
+                "ambient": "calm",
+                "intense": "dramatic",
+                "exciting": "dramatic",
+                "action": "dramatic",
+            }
+
+            # Use mapping if mood is invalid, otherwise use the mood directly
+            if raw_mood not in [m.value for m in MoodType]:
+                mapped_mood = mood_mapping.get(raw_mood, "calm")
+                print(f"⚠ Mapped invalid mood '{raw_mood}' to '{mapped_mood}'")
+                mood = MoodType(mapped_mood)
+            else:
+                mood = MoodType(raw_mood)
+
             scene = Scene(
                 id=generate_scene_id(idx),
                 description=scene_data["description"],
-                mood=MoodType(scene_data.get("mood", "ambient")),
+                mood=mood,
                 duration_ms=int(scene_data.get("duration_s", 15) * 1000),
                 visual_prompt="",  # Will be generated later
                 dialogue=[]  # Will be generated later
@@ -240,13 +268,14 @@ class StoryAgent:
 
         return state
 
-    def generate(self, user_prompt: str, params: Dict[str, Any]) -> PipelineState:
+    def generate(self, user_prompt: str, params: Dict[str, Any], run_id: str = None) -> PipelineState:
         """
         Generate complete story, characters, and script
 
         Args:
             user_prompt: User's story idea
             params: Generation parameters (genre, tone, duration, aspect)
+            run_id: Optional run ID (will generate if not provided)
 
         Returns:
             PipelineState with populated story, scenes, and characters
@@ -254,8 +283,10 @@ class StoryAgent:
         from shared.utils import generate_run_id
         from datetime import datetime
 
-        # Initialize state
-        run_id = generate_run_id()
+        # Initialize state with provided or generated run_id
+        if run_id is None:
+            run_id = generate_run_id()
+
         initial_state = {
             "user_input": user_prompt,
             "params": params,

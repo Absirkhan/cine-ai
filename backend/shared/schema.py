@@ -54,6 +54,20 @@ class Scene(BaseModel):
     mood: MoodType = Field(MoodType.AMBIENT, description="Scene mood for BGM selection")
     duration_ms: int = Field(..., description="Target scene duration in milliseconds")
 
+    # Character composition for this scene
+    characters_in_scene: List[str] = Field(
+        default_factory=list,
+        description="List of character names visible in this scene"
+    )
+    character_visual_overrides: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Override character visuals per scene (e.g., {'Narrator': {'gender': 'female', 'description': '...'}})"
+    )
+
+    # Visual settings
+    has_subtitles: bool = Field(True, description="Whether to burn subtitles into video")
+    visual_filters: List[str] = Field(default_factory=list, description="Applied visual filters (e.g., ['darken', 'vignette'])")
+
     # Generated assets (populated by downstream phases)
     image_file: Optional[str] = Field(None, description="Path to generated scene image")
     video_file: Optional[str] = Field(None, description="Path to animated scene video")
@@ -124,12 +138,17 @@ class PipelineState(BaseModel):
 
 class EditIntent(BaseModel):
     """Parsed user edit intention"""
-    intent_type: Literal["change_voice", "change_mood", "change_bgm", "regenerate_scene",
-                         "adjust_duration", "apply_filter", "change_script", "full_regenerate"]
-    target: Literal["audio", "video_frame", "video", "script", "bgm"]
-    scope: Optional[str] = Field(None, description="Target scope (e.g., character:Narrator, scene:scene_001)")
+    intent_type: Literal[
+        "change_voice", "change_mood", "change_bgm", "regenerate_scene",
+        "adjust_duration", "apply_filter", "change_script", "full_regenerate",
+        "add_bgm", "remove_bgm", "toggle_subtitles", "change_scene_characters",
+        "change_character_design", "speed_up", "slow_down", "regenerate_script"
+    ]
+    target: Literal["audio", "video_frame", "video", "script", "bgm", "composition"]
+    scope: Optional[str] = Field(None, description="Target scope (e.g., character:Narrator, scene:scene_001, all)")
     parameters: Dict[str, Any] = Field(default_factory=dict)
     original_query: str = Field(..., description="Original user edit command")
+    priority: int = Field(0, description="Execution priority (0=highest, higher numbers=lower priority)")
 
 
 class VersionSnapshot(BaseModel):

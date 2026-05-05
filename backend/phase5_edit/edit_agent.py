@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from typing import List, Dict, Any
 
 from .intent_parser import IntentParser
+from .intent_decomposer import IntentDecomposer
 from .executor import EditExecutor
 from shared.schema import PipelineState, EditIntent
 from shared.state_manager import StateManager
@@ -20,6 +21,7 @@ class EditAgent:
 
     def __init__(self):
         self.parser = IntentParser()
+        self.decomposer = IntentDecomposer()
         self.executor = EditExecutor()
 
     def edit(
@@ -27,41 +29,56 @@ class EditAgent:
         edit_command: str,
         state: PipelineState,
         state_manager: StateManager
-    ) -> tuple[PipelineState, EditIntent]:
+    ) -> tuple[PipelineState, List[EditIntent]]:
         """
-        Execute natural language edit command
+        Execute natural language edit command (supports multi-part commands)
 
         Args:
-            edit_command: User's edit command in natural language
+            edit_command: User's edit command in natural language (can be complex)
             state: Current pipeline state
             state_manager: State manager for versioning
 
         Returns:
-            Tuple of (updated state, parsed intent)
+            Tuple of (updated state, list of parsed intents)
         """
         print("\n" + "=" * 80)
         print("✏️  EDIT AGENT")
         print("=" * 80)
         print(f"\nCommand: \"{edit_command}\"")
 
-        # Parse intent
-        print("\n📋 Parsing intent...")
-        intent = self.parser.parse(edit_command)
+        # Step 1: Decompose complex command into atomic sub-commands
+        print("\n✂️  Decomposing command...")
+        sub_commands = self.decomposer.decompose(edit_command)
 
-        print(f"\nParsed Intent:")
-        print(f"  Type: {intent.intent_type}")
-        print(f"  Target: {intent.target}")
-        print(f"  Scope: {intent.scope or 'all'}")
-        print(f"  Parameters: {intent.parameters}")
+        if len(sub_commands) > 1:
+            print(f"   Decomposed into {len(sub_commands)} sub-command(s):")
+            for i, cmd in enumerate(sub_commands, 1):
+                print(f"   {i}. {cmd}")
+        else:
+            print("   Single command (no decomposition needed)")
 
-        # Execute edit
-        updated_state = self.executor.execute(intent, state, state_manager)
+        # Step 2: Parse each sub-command into intent
+        print("\n📋 Parsing intent(s)...")
+        intents = self.parser.parse_multiple(sub_commands)
 
-        print("\n✓ Edit complete!")
-        print("  Use undo() to revert this change")
+        print(f"\n{len(intents)} Intent(s) Parsed:")
+        for i, intent in enumerate(intents, 1):
+            print(f"  {i}. Type: {intent.intent_type}")
+            print(f"     Target: {intent.target}")
+            print(f"     Scope: {intent.scope or 'all'}")
+            print(f"     Parameters: {intent.parameters}")
+
+        # Step 3: Execute all intents sequentially
+        print(f"\n🔧 Executing {len(intents)} edit(s)...")
+        for i, intent in enumerate(intents, 1):
+            print(f"\n[{i}/{len(intents)}] Executing: {intent.intent_type}")
+            state = self.executor.execute(intent, state, state_manager)
+
+        print("\n✓ All edits complete!")
+        print("  Use undo() to revert these changes")
         print("=" * 80)
 
-        return updated_state, intent
+        return state, intents
 
     def undo(
         self,
@@ -149,12 +166,25 @@ class EditAgent:
     def supports_edit_type(self, edit_type: str) -> bool:
         """Check if an edit type is supported"""
         supported = [
+            # Voice & Audio
             "change_voice",
+            "regenerate_script",
+            # Visual
+            "apply_filter",
+            "change_scene_characters",
+            "change_character_design",
+            "regenerate_scene",
+            # Music & BGM
             "change_mood",
             "change_bgm",
-            "regenerate_scene",
+            "add_bgm",
+            "remove_bgm",
+            # Timing & Composition
             "adjust_duration",
-            "apply_filter",
+            "speed_up",
+            "slow_down",
+            "toggle_subtitles",
+            # Global
             "change_script",
             "full_regenerate"
         ]

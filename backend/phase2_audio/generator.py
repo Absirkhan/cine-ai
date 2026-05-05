@@ -17,6 +17,12 @@ import httpx
 from shared.schema import PipelineState, Scene, Character, Dialogue, AudioManifest
 from shared.utils import generate_asset_filename
 import config
+from .voice_config import (
+    validate_voice_id,
+    select_voice_by_character,
+    get_voice_info,
+    ALLOWED_VOICES
+)
 
 
 class AudioGenerator:
@@ -35,42 +41,41 @@ class AudioGenerator:
             httpx_client=httpx_client
         )
 
-        # Voice ID mappings (ElevenLabs pre-made voices)
-        # You can replace these with custom voice IDs
-        self.voice_mappings = {
-            ("female", "calm"): "EXAVITQu4vr4xnSDxMaL",  # Bella
-            ("female", "energetic"): "21m00Tcm4TlvDq8ikWAM",  # Rachel
-            ("male", "calm"): "pNInz6obpgDQGcFmaJgB",  # Adam
-            ("male", "authoritative"): "VR6AewLTigWG4xSOukaG",  # Arnold
-            ("male", "energetic"): "5Q0t7uMcjvnagumLfvZi",  # Clyde
-            ("neutral", "whispered"): "TX3LPaxmHKxFdv7VOQHJ",  # Elli
-        }
+        print(f"✓ AudioGenerator initialized with {len(ALLOWED_VOICES)} allowed voices")
 
     def _get_voice_id(self, character: Character) -> str:
         """
         Map character voice parameters to ElevenLabs voice ID
+        CRITICAL: Only returns voice IDs from the free tier allowlist
 
         Args:
             character: Character with voice parameters
 
         Returns:
-            ElevenLabs voice ID
+            ElevenLabs voice ID (guaranteed to be in allowlist)
+
+        Raises:
+            ValueError: If validation fails (should never happen with proper config)
         """
         gender = character.voice_params.gender
         tone = character.voice_params.tone
 
-        # Try exact match
-        key = (gender, tone)
-        if key in self.voice_mappings:
-            return self.voice_mappings[key]
+        # Use allowlist-based selection
+        voice_id = select_voice_by_character(gender, tone, fallback="george")
 
-        # Fallback to gender-based match
-        for (g, t), voice_id in self.voice_mappings.items():
-            if g == gender:
-                return voice_id
+        # Double-check validation (safety check)
+        if not validate_voice_id(voice_id):
+            raise ValueError(
+                f"CRITICAL: Voice ID '{voice_id}' not in allowlist! "
+                f"This should never happen. Check voice_config.py"
+            )
 
-        # Ultimate fallback
-        return "21m00Tcm4TlvDq8ikWAM"  # Rachel (default)
+        # Log voice selection
+        voice_info = get_voice_info(voice_id)
+        if voice_info:
+            print(f"   Selected voice: {voice_info['name']} ({voice_info['description']})")
+
+        return voice_id
 
     def _synthesize_dialogue(
         self,
@@ -94,6 +99,15 @@ class AudioGenerator:
             Tuple of (audio_file_path, duration_ms)
         """
         voice_id = self._get_voice_id(character)
+
+        # CRITICAL VALIDATION: Ensure voice_id is in allowlist before API call
+        if not validate_voice_id(voice_id):
+            raise ValueError(
+                f"BLOCKED: Voice ID '{voice_id}' is not in the free tier allowlist. "
+                f"Using this voice will cause a 402 Payment Required error. "
+                f"Character: {character.name}, Gender: {character.voice_params.gender}, "
+                f"Tone: {character.voice_params.tone}"
+            )
 
         # Retry logic with exponential backoff
         max_retries = 3

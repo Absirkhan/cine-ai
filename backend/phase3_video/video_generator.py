@@ -68,6 +68,11 @@ class VideoGenerator:
             print(f"\nScene {i + 1}/{total_scenes}: {scene.id}")
             print(f"  Prompt: {scene.visual_prompt[:80]}...")
 
+            # Skip image generation if image already exists (e.g., from filter application)
+            if scene.image_file and Path(scene.image_file).exists():
+                print(f"  ✓ Using existing image: {Path(scene.image_file).name}")
+                continue
+
             # Generate image
             image_path = self.image_gen.generate_image(
                 prompt=scene.visual_prompt,
