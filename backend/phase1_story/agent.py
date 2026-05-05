@@ -232,23 +232,64 @@ class StoryAgent:
         return state
 
     def _generate_visual_prompts(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate visual prompts for each scene"""
+        """Generate visual prompts for each scene with continuity context"""
         scenes = state["scenes"]
+        characters = state["characters"]
         params = state["params"]
 
-        for scene in scenes:
+        # Import visual context manager
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(__file__).parent.parent / "phase3_video"))
+        from visual_context import VisualContextManager
+
+        # Initialize visual context manager
+        context_manager = VisualContextManager()
+        context_manager.initialize_from_characters(
+            characters=characters,
+            genre=params.get("genre", "Sci-Fi"),
+            tone=params.get("tone", "Cinematic"),
+            aspect=params.get("aspect", "16:9")
+        )
+
+        # Generate visual prompts with continuity
+        for idx, scene in enumerate(scenes):
+            # Build visual context from previous scenes
+            previous_scene_id = scenes[idx - 1].id if idx > 0 else None
+
+            # Get characters in this scene (extract from dialogue or scene description)
+            characters_in_scene = list(set([d.character for d in scene.dialogue]))
+
+            # Build context prompt
+            visual_context_text = context_manager.build_context_prompt(
+                scene_description=scene.description,
+                scene_id=scene.id,
+                characters_in_scene=characters_in_scene,
+                previous_scene_id=previous_scene_id
+            )
+
+            # Generate prompt with context
             prompt = VISUAL_PROMPT_GENERATION.format(
                 scene_description=scene.description,
                 genre=params.get("genre", "Sci-Fi"),
                 tone=params.get("tone", "Cinematic"),
-                aspect_ratio=params.get("aspect", "16:9")
+                aspect_ratio=params.get("aspect", "16:9"),
+                visual_context=visual_context_text if visual_context_text else "No previous context."
             )
 
             response = self.llm.invoke([HumanMessage(content=prompt)])
             scene.visual_prompt = response.content.strip()
 
+            # Add to history for next scenes
+            context_manager.add_to_history(
+                scene_id=scene.id,
+                description=scene.description,
+                visual_prompt=scene.visual_prompt,
+                characters_in_scene=characters_in_scene
+            )
+
         state["scenes"] = scenes
-        state["progress"] = "Visual prompts created"
+        state["progress"] = "Visual prompts created with continuity"
 
         return state
 

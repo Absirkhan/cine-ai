@@ -26,27 +26,171 @@ class ImageGenerator:
         # Get HuggingFace token from environment
         self.hf_token = os.getenv("HUGGINGFACE_API_KEY") or config.HUGGINGFACE_API_KEY
 
-        # Primary model (FLUX.1-schnell - fast, high quality)
-        self.primary_model = "black-forest-labs/FLUX.1-schnell"
+        # Primary model (Z-Image-Turbo - 8-step fast generation)
+        self.primary_model = "Tongyi-MAI/Z-Image-Turbo"
 
-        # Fallback model (Stable Diffusion XL - reliable on free tier)
-        self.fallback_model = "stabilityai/stable-diffusion-xl-base-1.0"
+        # Fallback model (FLUX.1-schnell - fast, high quality)
+        self.fallback_model = "black-forest-labs/FLUX.1-schnell"
+
+        # Provider for Z-Image-Turbo
+        self.provider = "wavespeed"  # GPU-backed provider for Z-Image-Turbo
 
         # Current active client (will be initialized on first use)
         self.client = None
         self.current_model = None
+
+        # Free tier limits
+        self.max_prompt_length = 500  # Conservative limit for free tier
+        self.max_words = 77  # Token limit approximation (SDXL uses 77 tokens)
 
     def _get_client(self, model: str) -> InferenceClient:
         """
         Get or create InferenceClient for specified model
 
         Args:
-            model: Model identifier (e.g., "black-forest-labs/FLUX.1-schnell")
+            model: Model identifier (e.g., "Tongyi-MAI/Z-Image-Turbo")
 
         Returns:
             Configured InferenceClient instance
         """
-        return InferenceClient(model=model, token=self.hf_token)
+        # Use wavespeed provider for Z-Image-Turbo
+        if "Z-Image-Turbo" in model or "Tongyi-MAI" in model:
+            return InferenceClient(provider=self.provider, api_key=self.hf_token)
+        else:
+            return InferenceClient(model=model, token=self.hf_token)
+
+    def _truncate_prompt(self, prompt: str) -> str:
+        """
+        Intelligently truncate prompt to fit free-tier limits while preserving key information
+
+        Priority order:
+        1. Character descriptions (for continuity)
+        2. Main scene action/subject
+        3. Visual style and atmosphere
+        4. Secondary details
+
+        Args:
+            prompt: Original prompt text
+
+        Returns:
+            Truncated prompt that fits within limits
+        """
+        # If already within limits, return as-is
+        if len(prompt) <= self.max_prompt_length and len(prompt.split()) <= self.max_words:
+            return prompt
+
+        print(f"    [!] Prompt too long ({len(prompt)} chars, ~{len(prompt.split())} words). Truncating...")
+
+        # Extract key components using heuristics
+        lines = [line.strip() for line in prompt.split('\n') if line.strip()]
+
+        # Categorize lines by priority
+        character_lines = []
+        continuity_lines = []
+        scene_lines = []
+        style_lines = []
+        detail_lines = []
+
+        for line in lines:
+            line_lower = line.lower()
+            # Check for continuity instructions first (highest priority with characters)
+            if 'continuity' in line_lower or 'maintain exact' in line_lower or 'previous scene' in line_lower:
+                continuity_lines.append(line)
+            # Character descriptions
+            elif any(keyword in line_lower for keyword in ['character:', 'characters (', 'boy', 'girl', 'man', 'woman', 'person wearing', 'person with']):
+                character_lines.append(line)
+            # Scene action/subject (high priority)
+            elif any(keyword in line_lower for keyword in ['scene showing', 'scene depicts', 'depicts', 'showing', 'playing', 'running', 'celebrating', 'action:', 'doing']):
+                scene_lines.append(line)
+            # Visual style
+            elif any(keyword in line_lower for keyword in ['style:', 'cinematic', 'photorealistic', 'animated', 'tone:', 'lighting']):
+                style_lines.append(line)
+            # Everything else is detail
+            else:
+                detail_lines.append(line)
+
+        # Build truncated prompt with priority order
+        truncated_parts = []
+        current_word_count = 0
+
+        # Priority 1: Character descriptions (critical for continuity)
+        if character_lines:
+            # Combine character lines and truncate if needed
+            char_text = ' '.join(character_lines)
+            char_words = char_text.split()
+            if len(char_words) > 25:  # Max 25 words for character descriptions
+                char_text = ' '.join(char_words[:25])
+            truncated_parts.append(char_text)
+            current_word_count += len(char_text.split())
+
+        # Priority 2: Scene action/subject (what's happening)
+        if scene_lines and current_word_count < self.max_words - 15:
+            scene_text = ' '.join(scene_lines)
+            scene_words = scene_text.split()
+            available_words = self.max_words - current_word_count - 10  # Reserve 10 for style
+            if len(scene_words) > available_words:
+                scene_text = ' '.join(scene_words[:available_words])
+            truncated_parts.append(scene_text)
+            current_word_count += len(scene_text.split())
+
+        # Priority 3: Style (important but can be shortened)
+        if style_lines and current_word_count < self.max_words - 5:
+            style_text = ' '.join(style_lines[:1])  # Just first style line
+            style_words = style_text.split()
+            available_words = self.max_words - current_word_count - 5
+            if len(style_words) > available_words:
+                style_text = ' '.join(style_words[:available_words])
+            truncated_parts.append(style_text)
+            current_word_count += len(style_text.split())
+
+        # Priority 4: Continuity notes (if space permits)
+        if continuity_lines and current_word_count < self.max_words - 5:
+            cont_text = ' '.join(continuity_lines[:1])  # Just first continuity line
+            cont_words = cont_text.split()
+            available_words = self.max_words - current_word_count
+            if len(cont_words) > available_words:
+                cont_text = ' '.join(cont_words[:available_words])
+            truncated_parts.append(cont_text)
+            current_word_count += len(cont_text.split())
+
+        # Priority 5: Details (only if space available)
+        if detail_lines and current_word_count < self.max_words - 3:
+            detail_text = ' '.join(detail_lines)
+            detail_words = detail_text.split()
+            available_words = self.max_words - current_word_count
+            if len(detail_words) > available_words:
+                detail_text = ' '.join(detail_words[:available_words])
+            if detail_text:
+                truncated_parts.append(detail_text)
+                current_word_count += len(detail_text.split())
+
+        # Join and final truncation
+        truncated = ' '.join(truncated_parts)
+
+        # Hard truncate if still too long
+        if len(truncated) > self.max_prompt_length:
+            truncated = truncated[:self.max_prompt_length].rsplit(' ', 1)[0]  # Cut at word boundary
+
+        if len(truncated.split()) > self.max_words:
+            words = truncated.split()[:self.max_words]
+            truncated = ' '.join(words)
+
+        print(f"    -> Truncated to {len(truncated)} chars, ~{len(truncated.split())} words")
+
+        # Check what was preserved
+        preserved = []
+        if any(c in truncated for c in ['character', 'boy', 'girl', 'man', 'woman']):
+            preserved.append("Characters")
+        if any(s in truncated.lower() for s in ['showing', 'playing', 'depicting', 'scene']):
+            preserved.append("Scene")
+        if any(st in truncated.lower() for st in ['style', 'cinematic', 'lighting']):
+            preserved.append("Style")
+        if 'continuity' in truncated.lower() or 'maintain' in truncated.lower():
+            preserved.append("Continuity")
+
+        print(f"    -> Preserved: {', '.join(preserved) if preserved else 'Basic elements'}")
+
+        return truncated
 
     def generate_image(
         self,
@@ -75,10 +219,13 @@ class ImageGenerator:
             Path to generated image file, or None on failure
         """
 
+        # Truncate prompt to fit free-tier limits
+        truncated_prompt = self._truncate_prompt(prompt)
+
         # Try primary model first
         result = self._try_generate_with_model(
             model=self.primary_model,
-            prompt=prompt,
+            prompt=truncated_prompt,
             run_id=run_id,
             scene_id=scene_id,
             retries=retries
@@ -91,7 +238,7 @@ class ImageGenerator:
         print(f"  ⚠ Primary model failed, trying fallback: {self.fallback_model}")
         result = self._try_generate_with_model(
             model=self.fallback_model,
-            prompt=prompt,
+            prompt=truncated_prompt,
             run_id=run_id,
             scene_id=scene_id,
             retries=retries
@@ -131,7 +278,11 @@ class ImageGenerator:
 
                 # Generate image using official SDK
                 # This returns a PIL.Image object directly
-                image = client.text_to_image(prompt)
+                # For Z-Image-Turbo, we need to pass the model parameter
+                if "Z-Image-Turbo" in model or "Tongyi-MAI" in model:
+                    image = client.text_to_image(prompt, model=model, width=832, height=512)
+                else:
+                    image = client.text_to_image(prompt)
 
                 print(f"    ✓ Image generated successfully")
 
