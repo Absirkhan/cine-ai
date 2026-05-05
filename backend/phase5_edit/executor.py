@@ -23,12 +23,82 @@ class EditExecutor:
     def __init__(self):
         self.filters = ImageFilters()
 
-    def _normalize_scene_id(self, scope: str) -> Optional[str]:
+    def _apply_tone_shaping(self, text: str, tone: str) -> str:
+        """
+        Apply text shaping to change TTS delivery based on tone
+
+        Uses formatting techniques to guide TTS pronunciation:
+        - Pauses: ... or , for dramatic effect
+        - Line breaks: \n for pacing
+        - Emphasis: ALL CAPS or *emphasis*
+        - Repetition and filler words
+        """
+        # Remove existing tone prefix if present
+        if text.startswith("["):
+            bracket_end = text.find("]")
+            if bracket_end != -1:
+                text = text[bracket_end + 1:].strip()
+
+        shaped_text = text
+        tone_lower = tone.lower()
+
+        # Whispered: Add pauses and slow pacing
+        if "whisper" in tone_lower or "quiet" in tone_lower or "soft" in tone_lower:
+            # Add pauses between phrases
+            shaped_text = shaped_text.replace(". ", "... ")
+            shaped_text = shaped_text.replace(", ", "... ")
+            # Add filler words for slower pacing
+            if not shaped_text.startswith("Well..."):
+                shaped_text = "..." + shaped_text
+
+        # Dramatic: Add emphasis and pauses
+        elif "dramatic" in tone_lower or "intense" in tone_lower:
+            # Add dramatic pauses
+            shaped_text = shaped_text.replace(". ", ".\n")
+            # Emphasize key words (simple heuristic: capitalize longer words)
+            words = shaped_text.split()
+            for i, word in enumerate(words):
+                if len(word) > 6 and word.islower():
+                    words[i] = word.upper()
+            shaped_text = " ".join(words)
+
+        # Excited: Add exclamations and fast pacing
+        elif "excit" in tone_lower or "energetic" in tone_lower or "upbeat" in tone_lower:
+            # Add exclamation marks
+            shaped_text = shaped_text.replace(". ", "! ")
+            if not shaped_text.endswith("!"):
+                shaped_text += "!"
+
+        # Casual: Add filler words
+        elif "casual" in tone_lower or "relaxed" in tone_lower:
+            filler_words = ["Well, ", "You know, ", "So, ", "Anyway, "]
+            import random
+            shaped_text = random.choice(filler_words) + shaped_text
+
+        # Sad/Melancholy: Add pauses and soften
+        elif "sad" in tone_lower or "melancholy" in tone_lower or "somber" in tone_lower:
+            shaped_text = shaped_text.replace(". ", "... ")
+            shaped_text = shaped_text.replace("!", "...")
+
+        # Fast: Remove pauses
+        elif "fast" in tone_lower or "quick" in tone_lower or "rapid" in tone_lower:
+            shaped_text = shaped_text.replace("...", "")
+            shaped_text = shaped_text.replace(", ", " ")
+
+        # Slow: Add many pauses
+        elif "slow" in tone_lower or "deliberate" in tone_lower:
+            shaped_text = shaped_text.replace(" ", "... ")
+
+        return shaped_text
+
+    def _normalize_scene_id(self, scope: str, state: Optional[PipelineState] = None) -> Optional[str]:
         """
         Normalize scene ID from scope string
 
         Converts:
         - "scene:2" -> "scene_001" (1-indexed user input to 0-indexed scene ID)
+        - "scene:last" -> last scene ID (e.g., "scene_004" if 5 scenes)
+        - "scene:first" -> "scene_000"
         - "scene:scene_002" -> "scene_002"
         - "scene:scene_2" -> "scene_002"
         - "scene:scene_1" -> "scene_000"
@@ -38,7 +108,16 @@ class EditExecutor:
         if not scope or not scope.startswith("scene:"):
             return None
 
-        raw_id = scope.split(":")[1]
+        raw_id = scope.split(":")[1].lower().strip()
+
+        # Handle keywords
+        if raw_id in ["last", "final"]:
+            if state and state.scenes:
+                return state.scenes[-1].id
+            return None
+
+        if raw_id in ["first", "initial"]:
+            return "scene_000"
 
         # If it's already in scene_XXX format (3 digits), return as-is
         if raw_id.startswith("scene_") and len(raw_id) == 9:  # scene_XXX = 9 chars
@@ -165,16 +244,15 @@ class EditExecutor:
                 if scene.id == scene_id:
                     for dialogue in scene.dialogue:
                         if not character_name or dialogue.character == character_name:
-                            # Clear audio to force regeneration with new tone
-                            dialogue.audio_file = None
-                            dialogue.duration_ms = None
-
-                            # Add tone modifier to the dialogue text
+                            # Apply text shaping to change TTS delivery
                             if "tone" in intent.parameters:
                                 tone = intent.parameters["tone"]
-                                # Check if tone modifier already exists
-                                if not dialogue.text.startswith(f"[{tone}]"):
-                                    dialogue.text = f"[{tone}] {dialogue.text}"
+                                dialogue.text = self._apply_tone_shaping(dialogue.text, tone)
+                                print(f"   [SHAPED] {dialogue.character}: {dialogue.text[:60]}...")
+
+                            # Clear audio to force regeneration with shaped text
+                            dialogue.audio_file = None
+                            dialogue.duration_ms = None
 
                             modified_count += 1
 
@@ -202,7 +280,7 @@ class EditExecutor:
         new_mood = intent.parameters.get("mood", "calm")
 
         # Get scene if specified
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         # Update mood and re-select BGM
         for scene in state.scenes:
@@ -220,61 +298,52 @@ class EditExecutor:
         return state
 
     def _apply_filter(self, intent: EditIntent, state: PipelineState) -> PipelineState:
-        """Apply visual filter to scene image"""
+        """Apply visual changes by modifying prompt and regenerating image"""
         filter_type = intent.parameters.get("filter", "darken")
         amount = intent.parameters.get("amount", 0.3)
 
         # Get scene if specified
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
-        # Apply filter to scenes
+        # Apply visual modifications to scenes by updating prompt and regenerating
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
-                if not scene.image_file:
-                    print(f"   ⚠ No image for {scene.id}")
+                # Map filter type to prompt modification
+                prompt_modification = ""
+
+                if filter_type == "darken":
+                    prompt_modification = "with darker, muted lighting and shadows"
+                elif filter_type == "brighten":
+                    prompt_modification = "with brighter, well-lit illumination"
+                elif filter_type == "contrast":
+                    prompt_modification = "with high contrast and dramatic lighting"
+                elif filter_type == "saturation":
+                    prompt_modification = "with vibrant, highly saturated colors"
+                elif filter_type == "blur":
+                    prompt_modification = "with a soft, slightly blurred aesthetic"
+                elif filter_type == "grayscale":
+                    prompt_modification = "in black and white, monochrome style"
+                elif filter_type == "sepia":
+                    prompt_modification = "with sepia tones, vintage photographic style"
+                elif filter_type == "warm":
+                    prompt_modification = "with warm, golden hour lighting"
+                elif filter_type == "cool":
+                    prompt_modification = "with cool, blue-tinted lighting"
+                elif filter_type == "vignette":
+                    prompt_modification = "with darkened edges and vignette effect"
+                else:
+                    print(f"   ⚠ Unknown filter: {filter_type}")
                     continue
 
-                # Create filtered image path using version number for clean naming
-                original_path = scene.image_file
-                path_obj = Path(original_path)
+                # Update visual prompt to include modification
+                if prompt_modification not in scene.visual_prompt:
+                    scene.visual_prompt = scene.visual_prompt.rstrip(". ") + f", {prompt_modification}."
+                    print(f"   ✓ Updated prompt for {scene.id}: {prompt_modification}")
 
-                # Use state version for unique naming: image_scene_000_v4_darken.png
-                # This avoids chained names like image_scene_000_darken_brighten_contrast.png
-                filtered_filename = f"{path_obj.stem}_v{state.version}_{filter_type}{path_obj.suffix}"
-                filtered_path = str(path_obj.parent / filtered_filename)
-
-                # Apply filter
-                try:
-                    if filter_type == "darken":
-                        self.filters.darken(original_path, filtered_path, float(amount))
-                    elif filter_type == "brighten":
-                        self.filters.brighten(original_path, filtered_path, float(amount))
-                    elif filter_type == "contrast":
-                        self.filters.adjust_contrast(original_path, filtered_path, float(amount))
-                    elif filter_type == "saturation":
-                        self.filters.adjust_saturation(original_path, filtered_path, float(amount))
-                    elif filter_type == "blur":
-                        self.filters.apply_blur(original_path, filtered_path, int(float(amount) * 20))
-                    elif filter_type == "grayscale":
-                        self.filters.to_grayscale(original_path, filtered_path)
-                    elif filter_type == "sepia":
-                        self.filters.apply_sepia(original_path, filtered_path)
-                    elif filter_type == "warm":
-                        self.filters.adjust_temperature(original_path, filtered_path, 1.2)
-                    elif filter_type == "cool":
-                        self.filters.adjust_temperature(original_path, filtered_path, 0.8)
-                    elif filter_type == "vignette":
-                        self.filters.apply_vignette(original_path, filtered_path, float(amount))
-                    else:
-                        print(f"   ⚠ Unknown filter: {filter_type}")
-                        continue
-
-                    # Update scene image
-                    scene.image_file = filtered_path
-                    print(f"   ✓ Applied {filter_type} filter to {scene.id}")
-
-                except Exception as e:
-                    print(f"   ✗ Error applying filter: {e}")
+                # Clear image and video to force regeneration with new prompt
+                scene.image_file = None
+                scene.video_file = None
+                print(f"   ✓ Cleared assets for {scene.id} to force regeneration")
 
         state.phase_status["video"] = "needs_regeneration"
         return state
@@ -285,7 +354,7 @@ class EditExecutor:
         if not new_duration:
             return state
 
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -299,7 +368,7 @@ class EditExecutor:
         """Add background music to scene(s)"""
         mood = intent.parameters.get("mood", "ambient")
 
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -314,7 +383,7 @@ class EditExecutor:
 
     def _remove_bgm(self, intent: EditIntent, state: PipelineState) -> PipelineState:
         """Remove background music from scene(s)"""
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -328,7 +397,7 @@ class EditExecutor:
         """Speed up scene(s) by adjusting duration"""
         speed_multiplier = intent.parameters.get("speed_multiplier", 1.5)
 
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -343,7 +412,7 @@ class EditExecutor:
         """Slow down scene(s) by adjusting duration"""
         speed_multiplier = intent.parameters.get("speed_multiplier", 0.75)
 
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -358,7 +427,7 @@ class EditExecutor:
         """Toggle subtitle visibility for scene(s)"""
         show_subtitles = intent.parameters.get("show_subtitles", False)
 
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -374,7 +443,7 @@ class EditExecutor:
         genders = intent.parameters.get("genders", [])
         character_count = intent.parameters.get("character_count", len(genders))
 
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         for scene in state.scenes:
             if not scene_id or scene.id == scene_id:
@@ -399,62 +468,75 @@ class EditExecutor:
 
     def _change_character_design(self, intent: EditIntent, state: PipelineState) -> PipelineState:
         """Change character visual design (requires re-generation)"""
-        # Extract scope (which scene to modify)
-        scene_id = self._normalize_scene_id(intent.scope)
+        # Extract scope - handle both scene and character scopes
+        scene_id = None
+        character_name = None
 
-        # Extract parameters
-        character_name = intent.parameters.get("character_name") or intent.parameters.get("reference_character")
+        if intent.scope:
+            # Parse scope - could be "character:Name" or "scene:ID" or both
+            scope_parts = [s.strip() for s in intent.scope.split(",")]
+            for part in scope_parts:
+                if part.startswith("character:"):
+                    character_name = part.split(":", 1)[1].strip()
+                elif part.startswith("scene:"):
+                    scene_id = self._normalize_scene_id(part, state)
+
+        # Also check parameters for character name
+        if not character_name:
+            character_name = intent.parameters.get("character_name") or intent.parameters.get("reference_character")
+
+        # Extract other parameters
         reference_scene = intent.parameters.get("reference_scene")
         new_description = intent.parameters.get("visual_description")
         new_gender = intent.parameters.get("gender")
 
-        # If reference_scene is provided, extract character description from that scene
-        reference_prompt = None
-        if reference_scene:
-            # Clean scene ID (remove "scene:" prefix if present)
-            ref_scene_id = reference_scene.replace("scene:", "")
-
-            for scene in state.scenes:
-                if scene.id == ref_scene_id:
-                    reference_prompt = scene.visual_prompt
-                    print(f"   Using reference prompt from {ref_scene_id}")
-                    break
-
-        # Update the target scene(s)
-        for scene in state.scenes:
-            if not scene_id or scene.id == scene_id:
-                # If we have a reference prompt, we need to modify this scene's prompt
-                # to match the character appearance from the reference scene
-                if reference_prompt and character_name:
-                    # For now, add an override instruction to the visual prompt
-                    # In a more sophisticated version, we'd parse and merge the prompts
-                    override_instruction = f"\n\nIMPORTANT: {character_name} should have the same visual appearance (age, features, style) as in the reference image."
-
-                    if override_instruction not in scene.visual_prompt:
-                        scene.visual_prompt += override_instruction
-                        print(f"   ✓ Added appearance override for {character_name} in {scene.id}")
-
-                # Clear image to force regeneration with updated prompt
-                if scene.image_file:
-                    scene.image_file = None
-                    scene.video_file = None
-                    print(f"   ✓ Cleared assets for {scene.id} to force regeneration")
-
-        # Also update global character metadata if new_description provided
+        # First, update global character metadata and get old description
+        old_description = None
         for character in state.characters:
-            if character_name and character.name == character_name:
+            if character_name and character.name.lower() == character_name.lower():
+                old_description = character.visual_description
                 if new_description:
                     character.visual_description = new_description
+                    print(f"   ✓ Updated global visual design for {character.name}: '{new_description}'")
                 if new_gender:
                     character.voice_params.gender = new_gender
-                print(f"   ✓ Updated visual design for {character.name}")
+                break
+
+        # Now update scene prompts to reflect the new character description
+        for scene in state.scenes:
+            if not scene_id or scene.id == scene_id:
+                # Replace old character description with new one in the visual prompt
+                if character_name and old_description and new_description:
+                    # Replace the old description in the prompt
+                    if old_description in scene.visual_prompt:
+                        scene.visual_prompt = scene.visual_prompt.replace(old_description, new_description)
+                        print(f"   ✓ Replaced '{old_description}' with '{new_description}' in {scene.id}")
+                    else:
+                        # If exact match not found, add instruction
+                        override = f" {character_name} has {new_description} appearance."
+                        if override not in scene.visual_prompt:
+                            scene.visual_prompt = scene.visual_prompt.rstrip(". ") + f".{override}"
+                            print(f"   ✓ Added appearance override to {scene.id}")
+
+                # Handle reference scene case
+                elif reference_scene and character_name:
+                    ref_scene_id = reference_scene.replace("scene:", "")
+                    override_instruction = f" {character_name} has same appearance as scene {ref_scene_id}."
+                    if override_instruction not in scene.visual_prompt:
+                        scene.visual_prompt = scene.visual_prompt.rstrip(". ") + f".{override_instruction}"
+                        print(f"   ✓ Added reference to {ref_scene_id} in {scene.id}")
+
+                # Clear assets to force regeneration
+                scene.image_file = None
+                scene.video_file = None
+                print(f"   ✓ Cleared assets for {scene.id} to force regeneration")
 
         state.phase_status["video"] = "needs_regeneration"
         return state
 
     def _regenerate_scene(self, intent: EditIntent, state: PipelineState) -> PipelineState:
-        """Mark scene for regeneration with optional prompt modifications"""
-        scene_id = self._normalize_scene_id(intent.scope)
+        """Mark scene for regeneration with optional prompt modifications, maintaining visual continuity"""
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         # Extract modification parameters
         activity = intent.parameters.get("activity")
@@ -477,10 +559,22 @@ class EditExecutor:
                     scene.description = new_description
                     print(f"   ✓ Updated scene description")
 
+                # Add continuity instruction if not first scene
+                scene_index = next((i for i, s in enumerate(state.scenes) if s.id == scene.id), None)
+                if scene_index and scene_index > 0:
+                    prev_scene = state.scenes[scene_index - 1]
+                    continuity_note = (
+                        "\n\nCONTINUITY: Maintain exact visual style, character appearances, "
+                        f"and environment consistency with previous scene ({prev_scene.id})."
+                    )
+                    if continuity_note not in scene.visual_prompt:
+                        scene.visual_prompt += continuity_note
+                        print(f"   ✓ Added visual continuity constraint")
+
                 # Clear existing assets to force regeneration
                 scene.image_file = None
                 scene.video_file = None
-                print(f"   ✓ Marked {scene.id} for regeneration")
+                print(f"   ✓ Marked {scene.id} for regeneration with visual continuity")
 
         state.phase_status["video"] = "needs_regeneration"
         return state
@@ -493,7 +587,7 @@ class EditExecutor:
 
     def _change_script(self, intent: EditIntent, state: PipelineState) -> PipelineState:
         """Modify dialogue text or scene descriptions"""
-        scene_id = self._normalize_scene_id(intent.scope)
+        scene_id = self._normalize_scene_id(intent.scope, state)
 
         # Parameters for script modification
         new_text = intent.parameters.get("new_text")
@@ -524,13 +618,13 @@ class EditExecutor:
                                     print(f"   ✓ Updated dialogue for {character_name} in {scene.id}")
                                     modified_count += 1
 
-                    # Add tone instruction to all dialogue in scene
+                    # Add tone shaping to all dialogue in scene
                     elif tone_change:
                         for dialogue in scene.dialogue:
-                            dialogue.text = f"[{tone_change}] {dialogue.text}"
+                            dialogue.text = self._apply_tone_shaping(dialogue.text, tone_change)
                             dialogue.audio_file = None
                             dialogue.duration_ms = None
-                        print(f"   ✓ Applied tone '{tone_change}' to all dialogue in {scene.id}")
+                        print(f"   ✓ Applied tone '{tone_change}' with text shaping to {scene.id}")
                         modified_count += len(scene.dialogue)
 
         # If no scene specified, apply to entire story
@@ -538,12 +632,11 @@ class EditExecutor:
             if tone_change:
                 for scene in state.scenes:
                     for dialogue in scene.dialogue:
-                        if not dialogue.text.startswith(f"[{tone_change}]"):
-                            dialogue.text = f"[{tone_change}] {dialogue.text}"
-                            dialogue.audio_file = None
-                            dialogue.duration_ms = None
-                            modified_count += 1
-                print(f"   ✓ Applied tone '{tone_change}' to all dialogue ({modified_count} lines)")
+                        dialogue.text = self._apply_tone_shaping(dialogue.text, tone_change)
+                        dialogue.audio_file = None
+                        dialogue.duration_ms = None
+                        modified_count += 1
+                print(f"   ✓ Applied tone '{tone_change}' with text shaping to all dialogue ({modified_count} lines)")
 
         if modified_count > 0:
             state.phase_status["audio"] = "needs_regeneration"

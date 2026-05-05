@@ -13,6 +13,7 @@ from typing import Optional
 from .image_generator import ImageGenerator
 from .animator import VideoAnimator
 from .compositor import VideoCompositor
+from .visual_context import VisualContextManager
 from shared.schema import PipelineState
 import config
 
@@ -47,14 +48,31 @@ class VideoGenerator:
         if not state.scenes:
             raise ValueError("No scenes to generate video from")
 
+        # Initialize or restore visual context manager
+        context_manager = VisualContextManager()
+
+        if state.visual_context:
+            # Restore from saved context (for edits/regenerations)
+            print("  📋 Restoring visual context from state...")
+            # Context restoration logic could be added here
+        else:
+            # Initialize new context
+            print("  🎬 Initializing visual context for continuity...")
+            context_manager.initialize_from_characters(
+                characters=state.characters,
+                genre=state.user_params.get("genre", "Sci-Fi"),
+                tone=state.user_params.get("tone", "Cinematic"),
+                aspect=state.user_params.get("aspect", "16:9")
+            )
+
         # Get aspect ratio dimensions
         aspect_ratio = state.user_params.get("aspect", "16:9")
         width, height = self.image_gen.get_image_dimensions(aspect_ratio)
 
         total_scenes = len(state.scenes)
 
-        # Step 1: Generate images for each scene
-        print(f"\n📸 Generating images for {total_scenes} scenes...")
+        # Step 1: Generate images for each scene with visual continuity
+        print(f"\n📸 Generating images for {total_scenes} scenes with visual continuity...")
 
         for i, scene in enumerate(state.scenes):
             if progress_callback:
@@ -71,9 +89,19 @@ class VideoGenerator:
             # Skip image generation if image already exists (e.g., from filter application)
             if scene.image_file and Path(scene.image_file).exists():
                 print(f"  ✓ Using existing image: {Path(scene.image_file).name}")
+
+                # Still add to context history for continuity
+                characters_in_scene = list(set([d.character for d in scene.dialogue]))
+                context_manager.add_to_history(
+                    scene_id=scene.id,
+                    description=scene.description,
+                    visual_prompt=scene.visual_prompt,
+                    characters_in_scene=characters_in_scene,
+                    image_path=scene.image_file
+                )
                 continue
 
-            # Generate image
+            # Generate image with continuity-aware prompt
             image_path = self.image_gen.generate_image(
                 prompt=scene.visual_prompt,
                 run_id=state.run_id,
@@ -84,6 +112,17 @@ class VideoGenerator:
 
             if image_path:
                 scene.image_file = image_path
+                print(f"  ✓ Image generated with visual continuity")
+
+                # Add to context history
+                characters_in_scene = list(set([d.character for d in scene.dialogue]))
+                context_manager.add_to_history(
+                    scene_id=scene.id,
+                    description=scene.description,
+                    visual_prompt=scene.visual_prompt,
+                    characters_in_scene=characters_in_scene,
+                    image_path=image_path
+                )
             else:
                 print(f"  ⚠ Failed to generate image for {scene.id}")
 

@@ -129,9 +129,44 @@ Output: {{"intent_type": "regenerate_scene", "target": "video_frame", "scope": "
 Input: "Change the narration text in scene 2 to be more dramatic"
 Output: {{"intent_type": "change_script", "target": "script", "scope": "scene:scene_002", "parameters": {{"tone": "dramatic"}}, "priority": 0}}
 
-IMPORTANT DISTINCTION:
+Input: "Add background music"
+Output: {{"intent_type": "add_bgm", "target": "bgm", "scope": "all", "parameters": {{"mood": "ambient"}}, "priority": 0}}
+
+Input: "Change character design"
+Output: {{"intent_type": "change_character_design", "target": "video_frame", "scope": "all", "parameters": {{}}, "priority": 0}}
+
+Input: "Make the character look younger"
+Output: {{"intent_type": "change_character_design", "target": "video_frame", "scope": "all", "parameters": {{"visual_description": "younger appearance"}}, "priority": 0}}
+
+Input: "Speed up this scene"
+Output: {{"intent_type": "speed_up", "target": "video", "scope": "all", "parameters": {{"speed_multiplier": 1.5}}, "priority": 0}}
+
+Input: "Make it faster"
+Output: {{"intent_type": "speed_up", "target": "video", "scope": "all", "parameters": {{"speed_multiplier": 1.5}}, "priority": 0}}
+
+Input: "Regenerate the script"
+Output: {{"intent_type": "regenerate_script", "target": "script", "scope": "all", "parameters": {{}}, "priority": 0}}
+
+Input: "Redo the story"
+Output: {{"intent_type": "regenerate_script", "target": "script", "scope": "all", "parameters": {{}}, "priority": 0}}
+
+Input: "Add music to scene 2"
+Output: {{"intent_type": "add_bgm", "target": "bgm", "scope": "scene:2", "parameters": {{"mood": "ambient"}}, "priority": 0}}
+
+Input: "Make it dramatic"
+Output: {{"intent_type": "add_bgm", "target": "bgm", "scope": "all", "parameters": {{"mood": "dramatic"}}, "priority": 0}}
+
+Input: "Brighten the video"
+Output: {{"intent_type": "apply_filter", "target": "video_frame", "scope": "all", "parameters": {{"filter": "brighten", "amount": 0.3}}, "priority": 0}}
+
+IMPORTANT GUIDELINES:
 - Use "regenerate_scene" when the visual content/activity needs to change (e.g., different sport, different action, different setting)
 - Use "change_script" only when modifying narration/dialogue text WITHOUT changing visuals
+- If no scope is specified, use "all" as default scope
+- For BGM commands without mood, use "ambient" as default
+- For speed commands without multiplier, use 1.5 for speed_up and 0.75 for slow_down
+- For filter commands without amount, use 0.3 as default
+- Be flexible with natural language - "this scene" means current/most recent, "the video" means all scenes
 
 Now parse the user command above."""
 

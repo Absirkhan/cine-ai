@@ -25,6 +25,7 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 # API Keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
 
 # API Configuration
@@ -95,6 +96,7 @@ __all__ = [
     "OUTPUTS_DIR",
     "GROQ_API_KEY",
     "ELEVENLABS_API_KEY",
+    "DEEPGRAM_API_KEY",
     "HUGGINGFACE_API_KEY",
     "GROQ_MODEL",
     "HUGGINGFACE_IMAGE_MODEL",

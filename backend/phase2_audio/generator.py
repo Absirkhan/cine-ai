@@ -13,20 +13,16 @@ from elevenlabs import Voice, VoiceSettings
 import wave
 import time
 import httpx
+import requests
 
 from shared.schema import PipelineState, Scene, Character, Dialogue, AudioManifest
 from shared.utils import generate_asset_filename
 import config
-from .voice_config import (
-    validate_voice_id,
-    select_voice_by_character,
-    get_voice_info,
-    ALLOWED_VOICES
-)
+from .deepgram_voice_config import get_deepgram_voice
 
 
 class AudioGenerator:
-    """Handles TTS generation using ElevenLabs API"""
+    """Handles TTS generation using ElevenLabs API with Deepgram fallback"""
 
     def __init__(self):
         # Create custom httpx client with longer timeout and retry settings
@@ -41,7 +37,21 @@ class AudioGenerator:
             httpx_client=httpx_client
         )
 
-        print(f"✓ AudioGenerator initialized with {len(ALLOWED_VOICES)} allowed voices")
+        # Voice ID mappings (ElevenLabs pre-made voices)
+        # You can replace these with custom voice IDs
+        self.voice_mappings = {
+            ("female", "calm"): "EXAVITQu4vr4xnSDxMaL",  # Bella
+            ("female", "energetic"): "21m00Tcm4TlvDq8ikWAM",  # Rachel
+            ("male", "calm"): "pNInz6obpgDQGcFmaJgB",  # Adam
+            ("male", "authoritative"): "VR6AewLTigWG4xSOukaG",  # Arnold
+            ("male", "energetic"): "5Q0t7uMcjvnagumLfvZi",  # Clyde
+            ("neutral", "whispered"): "TX3LPaxmHKxFdv7VOQHJ",  # Elli
+        }
+
+        # Flag to force Deepgram fallback (for IP blocking or free tier exhaustion)
+        self.use_deepgram_fallback = True  # Always use Deepgram due to ElevenLabs IP blocking
+
+        print(f"✓ AudioGenerator initialized (Using Deepgram TTS due to ElevenLabs limitations)")
 
     def _get_voice_id(self, character: Character) -> str:
         """
@@ -77,6 +87,80 @@ class AudioGenerator:
 
         return voice_id
 
+        # Ultimate fallback
+        return "21m00Tcm4TlvDq8ikWAM"  # Rachel (default)
+
+    def _synthesize_with_deepgram(
+        self,
+        text: str,
+        character: Character,
+        run_id: str,
+        scene_id: str,
+        dialogue_idx: int
+    ) -> tuple[str, int]:
+        """
+        Synthesize dialogue using Deepgram Aura TTS
+
+        Args:
+            text: Text to synthesize
+            character: Character speaking
+            run_id: Pipeline run ID
+            scene_id: Scene ID
+            dialogue_idx: Index of dialogue within scene
+
+        Returns:
+            Tuple of (audio_file_path, duration_ms)
+        """
+        # Get Deepgram voice model based on character
+        deepgram_model = get_deepgram_voice(
+            character.voice_params.gender,
+            character.voice_params.tone
+        )
+
+        print(f"🎤 Using Deepgram voice: {deepgram_model}")
+
+        # Deepgram API endpoint
+        url = f"https://api.deepgram.com/v1/speak?model={deepgram_model}"
+
+        headers = {
+            "Authorization": f"Token {config.DEEPGRAM_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "text": text
+        }
+
+        # Make request to Deepgram
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+
+            audio_bytes = response.content
+            print(f"✓ Deepgram synthesis successful!")
+
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Deepgram API error: {str(e)}")
+            raise Exception(f"Deepgram TTS failed: {str(e)}")
+
+        # Save to file
+        audio_file = generate_asset_filename(
+            run_id,
+            "audio",
+            f"{scene_id}_dialogue_{dialogue_idx:02d}",
+            "mp3"
+        )
+
+        with open(audio_file, "wb") as f:
+            f.write(audio_bytes)
+
+        # Estimate duration (approximate)
+        # Rough estimate: ~150 words per minute average speech
+        word_count = len(text.split())
+        duration_ms = int((word_count / 150) * 60 * 1000 / character.voice_params.speed)
+
+        return str(audio_file), duration_ms
+
     def _synthesize_dialogue(
         self,
         dialogue: Dialogue,
@@ -87,6 +171,7 @@ class AudioGenerator:
     ) -> tuple[str, int]:
         """
         Synthesize a single dialogue line
+        Uses Deepgram as fallback if ElevenLabs fails or is unavailable
 
         Args:
             dialogue: Dialogue object
@@ -98,6 +183,18 @@ class AudioGenerator:
         Returns:
             Tuple of (audio_file_path, duration_ms)
         """
+        # Check if we should use Deepgram fallback immediately
+        if self.use_deepgram_fallback:
+            print(f"⚡ Using Deepgram TTS (ElevenLabs bypassed)")
+            return self._synthesize_with_deepgram(
+                dialogue.text,
+                character,
+                run_id,
+                scene_id,
+                dialogue_idx
+            )
+
+        # Otherwise, try ElevenLabs first with fallback to Deepgram
         voice_id = self._get_voice_id(character)
 
         # CRITICAL VALIDATION: Ensure voice_id is in allowlist before API call
@@ -115,7 +212,7 @@ class AudioGenerator:
 
         for attempt in range(max_retries):
             try:
-                print(f"🎤 Synthesizing dialogue (attempt {attempt + 1}/{max_retries})...")
+                print(f"🎤 Synthesizing dialogue with ElevenLabs (attempt {attempt + 1}/{max_retries})...")
 
                 # Generate audio using the correct ElevenLabs API method
                 audio_generator = self.client.text_to_speech.convert(
@@ -132,7 +229,7 @@ class AudioGenerator:
 
                 # Convert generator to bytes
                 audio_bytes = b"".join(audio_generator)
-                print(f"✓ Synthesis successful!")
+                print(f"✓ ElevenLabs synthesis successful!")
                 break  # Success, exit retry loop
 
             except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException) as e:
@@ -141,14 +238,26 @@ class AudioGenerator:
                     print(f"⚠ Timeout on attempt {attempt + 1}, retrying in {wait_time}s...")
                     time.sleep(wait_time)
                 else:
-                    print(f"✗ Failed after {max_retries} attempts")
-                    raise Exception(f"ElevenLabs API timeout after {max_retries} retries: {str(e)}")
+                    print(f"✗ ElevenLabs failed after {max_retries} attempts, falling back to Deepgram...")
+                    return self._synthesize_with_deepgram(
+                        dialogue.text,
+                        character,
+                        run_id,
+                        scene_id,
+                        dialogue_idx
+                    )
 
             except Exception as e:
-                print(f"✗ Unexpected error: {str(e)}")
-                raise
+                print(f"✗ ElevenLabs error: {str(e)}, falling back to Deepgram...")
+                return self._synthesize_with_deepgram(
+                    dialogue.text,
+                    character,
+                    run_id,
+                    scene_id,
+                    dialogue_idx
+                )
 
-        # Save to file
+        # Save to file (if ElevenLabs succeeded)
         audio_file = generate_asset_filename(
             run_id,
             "audio",

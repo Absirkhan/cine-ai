@@ -115,7 +115,7 @@ Respond with ONLY a JSON object in this exact format:
 
 Do not include any other text. Only output the JSON."""
 
-VISUAL_PROMPT_GENERATION = """You are a prompt engineer for AI image generation. Create a detailed visual prompt for this scene.
+VISUAL_PROMPT_GENERATION = """You are a prompt engineer for AI image generation. Create a CONCISE visual prompt for this scene that maintains visual continuity.
 
 SCENE DESCRIPTION:
 {scene_description}
@@ -125,18 +125,26 @@ Genre: {genre}
 Tone: {tone}
 Aspect Ratio: {aspect_ratio}
 
-INSTRUCTIONS:
-1. Create a highly detailed prompt for FLUX.1-schnell image generation
-2. Include:
-   - Visual style matching the tone (cinematic, painterly, etc.)
-   - Lighting and atmosphere matching the mood
-   - Composition details for the aspect ratio
-   - Specific visual elements from the scene description
-3. Keep prompt under 200 words
-4. Do NOT include characters with faces (AI struggles with faces in group shots)
-5. Focus on environment, atmosphere, and setting
+{visual_context}
 
-Respond with ONLY the prompt text, no JSON, no additional formatting."""
+INSTRUCTIONS:
+1. Create a CONCISE prompt for FLUX.1-schnell image generation (MAX 60 words / 400 characters)
+2. Priority order:
+   - Character descriptions from VISUAL CONTEXT (use EXACT wording for consistency)
+   - Main scene action/subject
+   - Visual style and lighting
+   - Key atmospheric details only
+3. CRITICAL - Visual continuity:
+   - Use exact character descriptions from context
+   - Maintain consistent style, lighting, and color palette
+   - Keep character ages, appearances, and clothing identical
+4. Avoid:
+   - Long explanations or redundant details
+   - Detailed facial descriptions (AI struggles with faces)
+   - Unnecessary adjectives or filler words
+5. Format: Single concise paragraph, no line breaks
+
+Respond with ONLY the prompt text (60 words max), no JSON, no additional formatting."""
 
 MOOD_CLASSIFICATION_PROMPT = """Based on this scene description, classify the dominant mood for background music selection.
 

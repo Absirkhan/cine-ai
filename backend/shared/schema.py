@@ -36,6 +36,12 @@ class Character(BaseModel):
     voice_params: VoiceParams
     visual_description: str = Field(..., description="Physical appearance for image generation")
 
+    # Visual continuity attributes (locked after first appearance)
+    locked_appearance: Optional[Dict[str, str]] = Field(
+        None,
+        description="Locked visual attributes for consistency (age, hair, clothing, etc.)"
+    )
+
 
 class Dialogue(BaseModel):
     """Single dialogue line within a scene"""
@@ -114,6 +120,12 @@ class PipelineState(BaseModel):
     scenes: List[Scene] = Field(default_factory=list)
     characters: List[Character] = Field(default_factory=list)
     audio_manifest: Optional[AudioManifest] = None
+
+    # Visual continuity context
+    visual_context: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Visual continuity context for consistent image generation across scenes"
+    )
 
     # Final outputs
     final_video_path: Optional[str] = None
