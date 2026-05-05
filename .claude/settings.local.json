@@ -11,7 +11,19 @@
       "Bash(chmod:*)",
       "Bash(timeout 5 python:*)",
       "Bash(cat:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(if [ -f \"frontend/package.json\" ])",
+      "Bash(then cat \"frontend/package.json\")",
+      "Bash(else echo \"No package.json in frontend\")",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(pip show:*)",
+      "Bash(..venvScriptspython.exe -m pip show langchain-groq)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(netstat:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

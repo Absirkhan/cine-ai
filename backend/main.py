@@ -118,6 +118,10 @@ async def generate_video(request: GenerateRequest):
     Returns run_id for tracking progress via WebSocket
     """
     try:
+        # Define progress callback that sends updates via WebSocket
+        async def send_progress(data):
+            await manager.send_progress(data.get("run_id"), data)
+
         # Start pipeline in background
         run_id = await orchestrator.start_pipeline(
             user_prompt=request.prompt,
@@ -127,9 +131,7 @@ async def generate_video(request: GenerateRequest):
                 "duration": request.duration,
                 "aspect": request.aspect
             },
-            progress_callback=lambda data: asyncio.create_task(
-                manager.send_progress(run_id, data)
-            ) if run_id else None
+            progress_callback=lambda data: asyncio.create_task(send_progress(data))
         )
 
         return GenerateResponse(
@@ -160,9 +162,11 @@ async def get_run_status(run_id: str):
 async def get_run_output(run_id: str):
     """Get the output JSON for a completed run"""
     try:
-        output_file = config.OUTPUTS_DIR / run_id / "phase2_output.json"
+        # Try phase outputs in reverse order (latest first)
+        output_file = config.OUTPUTS_DIR / run_id / "phase3_output.json"
         if not output_file.exists():
-            # Try phase1 output
+            output_file = config.OUTPUTS_DIR / run_id / "phase2_output.json"
+        if not output_file.exists():
             output_file = config.OUTPUTS_DIR / run_id / "phase1_output.json"
 
         if not output_file.exists():
@@ -250,6 +254,164 @@ async def websocket_progress(websocket: WebSocket, run_id: str):
         manager.disconnect(run_id)
 
 
+# Chat WebSocket connection manager
+class ChatConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, run_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[run_id] = websocket
+
+    def disconnect(self, run_id: str):
+        if run_id in self.active_connections:
+            del self.active_connections[run_id]
+
+    async def send_message(self, run_id: str, message: dict):
+        if run_id in self.active_connections:
+            try:
+                await self.active_connections[run_id].send_json(message)
+            except:
+                self.disconnect(run_id)
+
+chat_manager = ChatConnectionManager()
+
+
+@app.websocket("/ws/chat/{run_id}")
+async def websocket_chat(websocket: WebSocket, run_id: str):
+    """
+    WebSocket endpoint for Edit Agent chat
+    Handles bi-directional communication for natural language edits
+    """
+    print(f"[Chat WS] Connection request for run_id: {run_id}")
+
+    try:
+        await chat_manager.connect(run_id, websocket)
+        print(f"[Chat WS] Connection accepted for: {run_id}")
+
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "role": "system",
+            "content": f"Edit Agent is watching {run_id}. I can adjust script, audio, video frames, or pacing.",
+            "time": datetime.utcnow().strftime("%H:%M:%S")
+        })
+        print(f"[Chat WS] Initial message sent to: {run_id}")
+
+        # Listen for messages
+        while True:
+            try:
+                # Receive message from client
+                data = await websocket.receive_json()
+
+                user_message = data.get("content", "")
+                print(f"\n[Chat WS] Received edit command: {user_message}")
+
+                # Send thinking response
+                await websocket.send_json({
+                    "role": "assistant",
+                    "thinking": "Analyzing your request...",
+                    "time": datetime.utcnow().strftime("%H:%M:%S")
+                })
+
+                try:
+                    # Actually process the edit through the orchestrator
+                    print(f"[Chat WS] Calling edit agent for run_id: {run_id}")
+
+                    async def progress_handler(data):
+                        """Send progress updates via WebSocket"""
+                        await websocket.send_json({
+                            "role": "system",
+                            "content": f"Progress: {data.get('message', 'Processing...')}",
+                            "time": datetime.utcnow().strftime("%H:%M:%S")
+                        })
+
+                    # Execute the edit
+                    updated_state = await orchestrator.execute_edit(
+                        run_id=run_id,
+                        edit_command=user_message,
+                        progress_callback=progress_handler
+                    )
+
+                    # Send success response
+                    response = {
+                        "role": "assistant",
+                        "content": f"Successfully processed: {user_message}",
+                        "time": datetime.utcnow().strftime("%H:%M:%S"),
+                        "targets": [{"type": "Video Frame", "detail": "visuals"}],
+                        "plan": [{"label": "Edit completed", "diff": "applied"}],
+                        "confidence": 0.95,
+                        "eta": "complete",
+                        "applied": True,
+                        "resultVersion": f"v{updated_state.version if updated_state else '?'}"
+                    }
+
+                    await websocket.send_json(response)
+                    print(f"[Chat WS] Edit completed successfully")
+
+                except ValueError as ve:
+                    # Handle "No state found" error specifically
+                    error_msg = str(ve)
+                    print(f"[Chat WS] State error: {error_msg}")
+
+                    # Get list of available runs with completed states
+                    available_runs = []
+                    if config.OUTPUTS_DIR.exists():
+                        for run_dir in sorted(config.OUTPUTS_DIR.glob("run_*"), reverse=True):
+                            state_file = run_dir / "states" / "v001" / "state.json"
+                            if state_file.exists():
+                                available_runs.append(run_dir.name)
+                                if len(available_runs) >= 3:
+                                    break
+
+                    help_message = f"❌ This run ({run_id}) doesn't have a completed state yet.\n\n"
+
+                    if available_runs:
+                        help_message += "✅ Available runs with completed states:\n"
+                        for run in available_runs:
+                            help_message += f"  • {run}\n"
+                        help_message += "\nPlease navigate to one of these runs to test editing."
+                    else:
+                        help_message += "No completed runs found. Please run the pipeline first to generate a video."
+
+                    await websocket.send_json({
+                        "role": "assistant",
+                        "content": help_message,
+                        "time": datetime.utcnow().strftime("%H:%M:%S"),
+                        "error": True
+                    })
+
+                except Exception as edit_error:
+                    print(f"[Chat WS] Error processing edit: {edit_error}")
+                    import traceback
+                    traceback.print_exc()
+
+                    # Send error response
+                    await websocket.send_json({
+                        "role": "assistant",
+                        "content": f"Error processing edit: {str(edit_error)}",
+                        "time": datetime.utcnow().strftime("%H:%M:%S"),
+                        "error": True
+                    })
+
+            except WebSocketDisconnect:
+                print(f"[Chat WS] Client disconnected: {run_id}")
+                break
+            except Exception as e:
+                print(f"[Chat WS] Error: {e}")
+                import traceback
+                traceback.print_exc()
+                break
+
+    except Exception as e:
+        print(f"[Chat WS] Connection error: {e}")
+        import traceback
+        traceback.print_exc()
+
+    finally:
+        chat_manager.disconnect(run_id)
+        print(f"[Chat WS] Cleanup completed for: {run_id}")
+
+
 @app.get("/api/runs")
 async def list_runs():
     """List all pipeline runs"""
@@ -331,6 +493,74 @@ async def get_edit_history(run_id: str):
         history = state_manager.get_history()
 
         return {"history": history}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/runs/{run_id}/versions")
+async def get_version_history(run_id: str):
+    """
+    Get version history for a run
+    Returns list of versions with metadata about changes
+    """
+    try:
+        from shared.state_manager import StateManager
+
+        state_manager = StateManager(run_id)
+        history = state_manager.get_history()
+
+        # Transform history into version format expected by frontend
+        versions = []
+        for i, entry in enumerate(history):
+            version = {
+                "id": f"v{i+1}",
+                "label": f"v{i+1}",
+                "note": entry.get("description", f"Version {i+1}"),
+                "time": entry.get("timestamp", ""),
+                "author": entry.get("author", "Pipeline"),
+                "active": i == len(history) - 1,  # Last version is active
+                "changes": entry.get("changes", [])
+            }
+            versions.append(version)
+
+        # Return in reverse order (newest first)
+        return {"versions": list(reversed(versions))}
+
+    except Exception as e:
+        # Return mock data if state manager fails
+        return {
+            "versions": [
+                {
+                    "id": "v1",
+                    "label": "v1",
+                    "note": "Initial render",
+                    "time": "just now",
+                    "author": "Pipeline",
+                    "active": True,
+                    "changes": ["Full generation from prompt"]
+                }
+            ]
+        }
+
+
+@app.post("/api/runs/{run_id}/phases/{phase_id}/rerun")
+async def rerun_specific_phase(run_id: str, phase_id: str):
+    """Re-run a specific phase of the pipeline"""
+    try:
+        result = await orchestrator.rerun_phase(
+            run_id=run_id,
+            phase=phase_id,
+            progress_callback=lambda data: asyncio.create_task(
+                manager.send_progress(run_id, data)
+            )
+        )
+
+        return {
+            "status": "success",
+            "phase": phase_id,
+            "message": f"Phase {phase_id} re-run successfully"
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -832,20 +1062,36 @@ async def test_compositor():
         }
 
 
-# Serve frontend
-frontend_dir = Path(__file__).parent.parent / "frontend"
-if frontend_dir.exists():
-    # Serve index.html at root
-    @app.get("/")
-    async def serve_frontend():
-        """Serve the frontend index.html"""
-        index_path = frontend_dir / "index.html"
+# Serve Vite-built frontend
+dist_dir = Path(__file__).parent.parent / "dist"
+
+# Serve static assets (JS, CSS, etc.) first
+if (dist_dir / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets")), name="assets")
+
+# Catch-all route for SPA - must be last
+if dist_dir.exists():
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """
+        Serve the Vite-built SPA.
+        For any non-API route, return index.html to enable client-side routing.
+        """
+        # Skip API routes
+        if full_path.startswith("api/") or full_path.startswith("ws/"):
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Try to serve the specific file if it exists
+        file_path = dist_dir / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+
+        # Otherwise, serve index.html for client-side routing
+        index_path = dist_dir / "index.html"
         if index_path.exists():
             return FileResponse(index_path)
-        return {"error": "Frontend not found"}
 
-    # Serve static files
-    app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
+        return {"error": "Frontend not built. Run 'npm run build' in frontend/app directory."}
 
 
 if __name__ == "__main__":

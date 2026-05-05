@@ -87,7 +87,8 @@ class PipelineOrchestrator:
                 None,
                 self.story_agent.generate,
                 user_prompt,
-                params
+                params,
+                run_id  # Pass the run_id to story agent
             )
 
             await self._update_progress(run_id, "script", 100, "Story generation complete!", progress_callback)
@@ -241,8 +242,8 @@ class PipelineOrchestrator:
     ):
         """Re-run a specific phase"""
 
-        # Load existing state
-        state_manager = StateManager(run_id)
+        # Load existing state manager with history
+        state_manager = StateManager.load_or_create(run_id)
         state = state_manager.get_latest_state()
 
         if not state:
@@ -260,7 +261,8 @@ class PipelineOrchestrator:
                 None,
                 self.story_agent.generate,
                 state.user_prompt,
-                state.user_params
+                state.user_params,
+                run_id  # Pass the run_id to story agent
             )
 
             self._save_phase_output(run_id, "phase1", state)
@@ -311,8 +313,8 @@ class PipelineOrchestrator:
     ):
         """Execute edit command using edit agent"""
 
-        # Load existing state
-        state_manager = StateManager(run_id)
+        # Load existing state manager with history
+        state_manager = StateManager.load_or_create(run_id)
         state = state_manager.get_latest_state()
 
         if not state:
@@ -326,7 +328,7 @@ class PipelineOrchestrator:
 
         # Execute edit in background
         loop = asyncio.get_event_loop()
-        updated_state, intent = await loop.run_in_executor(
+        updated_state, intents = await loop.run_in_executor(
             None,
             self.edit_agent.edit,
             edit_command,
@@ -334,20 +336,29 @@ class PipelineOrchestrator:
             state_manager
         )
 
-        # Check if phase needs re-running
-        if updated_state.phase_status.get("audio") == "needs_regeneration":
+        # Check if any phase needs re-running
+        if updated_state.phase_status.get("script") == "needs_regeneration":
+            await self.rerun_phase(run_id, "script", progress_callback)
+            # If script regenerated, need to regenerate audio and video too
             await self.rerun_phase(run_id, "audio", progress_callback)
-
-        if updated_state.phase_status.get("video") == "needs_regeneration":
+            await self.rerun_phase(run_id, "video", progress_callback)
+        elif updated_state.phase_status.get("audio") == "needs_regeneration":
+            await self.rerun_phase(run_id, "audio", progress_callback)
+            # If audio regenerated, need to recompose video
+            await self.rerun_phase(run_id, "video", progress_callback)
+        elif updated_state.phase_status.get("video") == "needs_regeneration":
+            await self.rerun_phase(run_id, "video", progress_callback)
+        elif updated_state.phase_status.get("video") == "needs_recomposition":
+            # Only recompose without regenerating frames
             await self.rerun_phase(run_id, "video", progress_callback)
 
-        await self._update_progress(run_id, "edit", 100, "Edit complete!", progress_callback)
+        await self._update_progress(run_id, "edit", 100, f"Edit complete! Executed {len(intents)} intent(s)", progress_callback)
 
         return updated_state
 
     async def undo_edit(self, run_id: str, steps: int = 1):
         """Undo last N edits"""
-        state_manager = StateManager(run_id)
+        state_manager = StateManager.load_or_create(run_id)
 
         if not self.edit_agent:
             self.edit_agent = EditAgent()
