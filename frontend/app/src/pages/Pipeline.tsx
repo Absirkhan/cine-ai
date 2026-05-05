@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Icon, TopNav, PHASES, StatusChip } from '../components/primitives';
 import type { PhaseState } from '../types';
-import { getJobStatus, rerunPhase } from '../services/api';
+import { getJobStatus, rerunPhase, getRunArtifacts } from '../services/api';
 
 const Pipeline: React.FC = () => {
   const params = useParams<{ jobId: string }>();
@@ -21,6 +21,9 @@ const Pipeline: React.FC = () => {
     edit: { status: 'pending', progress: 0, duration: '—', substeps: ['Intent parser', 'Patch planner'] },
   });
 
+  // State for artifacts
+  const [artifacts, setArtifacts] = useState<any[]>([]);
+
   // Fetch real phase data from backend
   useEffect(() => {
     if (!jobId) return;
@@ -29,20 +32,13 @@ const Pipeline: React.FC = () => {
       try {
         const data = await getJobStatus(jobId);
 
-        // Transform backend data to phase states
-        if (data.phases) {
+        // Update phase states with backend data
+        if (data && data.phases) {
           setPhaseStates(data.phases);
         }
       } catch (err) {
-        console.error('Failed to fetch job status:', err);
-        // Keep using demo data on error
-        setPhaseStates({
-          script: { status: 'complete', progress: 100, duration: '42s', substeps: ['Scene graph', 'Dialogue', 'Shotlist'] },
-          audio: { status: 'complete', progress: 100, duration: '1m 08s', substeps: ['Voice casting', 'Narration', 'SFX', 'Score'] },
-          video: { status: 'running', progress: 64, duration: '2m 14s · eta 1m 22s', substeps: ['Storyboard', 'Keyframes', 'Interpolation', 'Compositing'] },
-          web: { status: 'pending', progress: 0, duration: '—', substeps: ['Player config', 'Captions', 'Share links'] },
-          edit: { status: 'pending', progress: 0, duration: '—', substeps: ['Intent parser', 'Patch planner'] },
-        });
+        // Silently keep current state on error
+        // This allows the UI to show the initial state if backend is unavailable
       }
     };
 
@@ -53,6 +49,24 @@ const Pipeline: React.FC = () => {
     const interval = setInterval(fetchStatus, 3000);
 
     return () => clearInterval(interval);
+  }, [jobId]);
+
+  // Fetch artifacts
+  useEffect(() => {
+    if (!jobId) return;
+
+    const fetchArtifacts = async () => {
+      try {
+        const data = await getRunArtifacts(jobId);
+        if (data && data.artifacts) {
+          setArtifacts(data.artifacts);
+        }
+      } catch (err) {
+        // Silently fail - artifacts section will show empty
+      }
+    };
+
+    fetchArtifacts();
   }, [jobId]);
 
   const handleRerun = async (id: string) => {
@@ -183,42 +197,39 @@ const Pipeline: React.FC = () => {
               <button className="cai-btn sm ghost"><Icon name="download" size={12}/> Export all</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {[
-                { icon: 'script', name: 'script_v3.md', meta: '4 scenes · 142 lines', size: '8.2 KB' },
-                { icon: 'audio', name: 'narration_en.wav', meta: 'Voice: Iris (calm)', size: '1.4 MB' },
-                { icon: 'audio', name: 'score_main.mp3', meta: 'Ambient · 60s · 120 BPM', size: '982 KB' },
-                { icon: 'video', name: 'comp_preview.mp4', meta: 'Rendering frame 384 / 1440', size: '—', running: true },
-              ].map((a, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '9px 10px', borderRadius: 8,
-                  background: 'rgba(245,239,230,0.02)',
-                  border: '1px solid var(--line)',
-                }}>
-                  <div style={{
-                    width: 28, height: 28, borderRadius: 6,
-                    background: 'rgba(232,84,10,0.12)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: a.running ? 'var(--cyan)' : 'var(--blue-soft)',
+              {artifacts.length > 0 ? (
+                artifacts.map((artifact, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '9px 10px', borderRadius: 8,
+                    background: 'rgba(245,239,230,0.02)',
+                    border: '1px solid var(--line)',
                   }}>
-                    <Icon name={a.icon} size={14}/>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="mono" style={{ fontSize: 12, fontWeight: 500 }}>{a.name}</div>
-                    <div style={{ fontSize: 10.5, color: 'var(--text-mute)' }}>{a.meta}</div>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-dim)' }} className="mono">{a.size}</div>
-                  {a.running ? (
-                    <div className="cai-chip running" style={{ padding: '2px 8px', fontSize: 10 }}>
-                      <span className="dot"></span>Writing
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 6,
+                      background: 'rgba(232,84,10,0.12)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--blue-soft)',
+                    }}>
+                      <Icon name={artifact.phase} size={14}/>
                     </div>
-                  ) : (
-                    <button className="cai-btn sm ghost" style={{ padding: 5 }}>
-                      <Icon name="download" size={12}/>
-                    </button>
-                  )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="mono" style={{ fontSize: 12, fontWeight: 500 }}>{artifact.name}</div>
+                      <div style={{ fontSize: 10.5, color: 'var(--text-mute)' }}>{artifact.description}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }} className="mono">{artifact.size_human}</div>
+                    <a href={artifact.download_url} download={artifact.name}>
+                      <button className="cai-btn sm ghost" style={{ padding: 5 }}>
+                        <Icon name="download" size={12}/>
+                      </button>
+                    </a>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-mute)', fontSize: 12 }}>
+                  No artifacts available yet. Artifacts will appear as phases complete.
                 </div>
-              ))}
+              )}
             </div>
           </div>
 

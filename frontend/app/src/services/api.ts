@@ -99,3 +99,34 @@ export async function sendChatMessage(runId: string, message: string): Promise<a
 
   return response.json();
 }
+
+/**
+ * Revert to a specific version
+ * POST /api/runs/:runId/revert/:version
+ */
+export async function revertToVersion(runId: string, version: number): Promise<any> {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/revert/${version}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to revert to version: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get list of downloadable artifacts for a run
+ * GET /api/runs/:runId/artifacts
+ */
+export async function getRunArtifacts(runId: string): Promise<any> {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/artifacts`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch artifacts: ${response.statusText}`);
+  }
+
+  return response.json();
+}

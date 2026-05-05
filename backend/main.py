@@ -181,6 +181,71 @@ async def get_run_output(run_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/runs/{run_id}/artifacts")
+async def get_run_artifacts(run_id: str):
+    """Get list of downloadable artifacts for a run"""
+    try:
+        run_dir = config.OUTPUTS_DIR / run_id
+        if not run_dir.exists():
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        artifacts = []
+
+        # Check for phase outputs
+        phase_files = [
+            ("phase1_output.json", "script", "Phase 1: Story & Script"),
+            ("phase2_output.json", "audio", "Phase 2: Audio Generation"),
+            ("phase3_output.json", "video", "Phase 3: Video Composition"),
+        ]
+
+        for filename, phase_id, description in phase_files:
+            file_path = run_dir / filename
+            if file_path.exists():
+                file_size = file_path.stat().st_size
+                artifacts.append({
+                    "name": filename,
+                    "phase": phase_id,
+                    "description": description,
+                    "size": file_size,
+                    "size_human": f"{file_size / 1024:.1f} KB" if file_size < 1024 * 1024 else f"{file_size / (1024 * 1024):.1f} MB",
+                    "download_url": f"/api/runs/{run_id}/download/{filename}",
+                    "type": "json"
+                })
+
+        return {"artifacts": artifacts}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/runs/{run_id}/download/{filename}")
+async def download_phase_output(run_id: str, filename: str):
+    """Download a specific phase output file"""
+    try:
+        # Validate filename to prevent directory traversal
+        allowed_files = ["phase1_output.json", "phase2_output.json", "phase3_output.json"]
+        if filename not in allowed_files:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        file_path = config.OUTPUTS_DIR / run_id / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        return FileResponse(
+            file_path,
+            media_type="application/json",
+            filename=filename,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/runs/{run_id}/assets/{asset_name}")
 async def get_asset(run_id: str, asset_name: str):
     """Serve generated assets (audio, images, videos)"""
@@ -483,6 +548,31 @@ async def undo_edit(request: UndoRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/runs/{run_id}/revert/{version}")
+async def revert_to_version(run_id: str, version: int):
+    """Revert to a specific version"""
+    try:
+        from shared.state_manager import StateManager
+
+        state_manager = StateManager.load_or_create(run_id)
+        state = state_manager.revert(version)
+
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Version {version} not found")
+
+        return {
+            "status": "success",
+            "message": f"Reverted to version {version}",
+            "current_version": state.version,
+            "timestamp": state.timestamp
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/runs/{run_id}/history")
 async def get_edit_history(run_id: str):
     """Get edit history for a run"""
@@ -507,19 +597,21 @@ async def get_version_history(run_id: str):
     try:
         from shared.state_manager import StateManager
 
-        state_manager = StateManager(run_id)
+        state_manager = StateManager.load_or_create(run_id)
         history = state_manager.get_history()
 
         # Transform history into version format expected by frontend
         versions = []
         for i, entry in enumerate(history):
+            version_num = entry.get("version", i + 1)
             version = {
-                "id": f"v{i+1}",
-                "label": f"v{i+1}",
-                "note": entry.get("description", f"Version {i+1}"),
+                "id": f"v{version_num}",
+                "label": f"v{version_num}",
+                "note": entry.get("description", f"Version {version_num}"),
                 "time": entry.get("timestamp", ""),
                 "author": entry.get("author", "Pipeline"),
-                "active": i == len(history) - 1,  # Last version is active
+                "active": version_num == state_manager.current_version,  # Mark current version as active
+                "version_number": version_num,  # Include version number for revert API
                 "changes": entry.get("changes", [])
             }
             versions.append(version)
@@ -1098,12 +1190,12 @@ if __name__ == "__main__":
     import uvicorn
 
     print("=" * 80)
-    print("🎬 CineAI - AI-Powered Video Generation System")
+    print("CineAI - AI-Powered Video Generation System")
     print("=" * 80)
-    print(f"\n🚀 Starting server on http://{config.HOST}:{config.PORT}")
-    print(f"\n📱 Frontend: http://localhost:{config.PORT}")
-    print(f"📡 API Docs: http://localhost:{config.PORT}/docs")
-    print(f"🔌 WebSocket: ws://localhost:{config.PORT}/ws/progress/{{run_id}}")
+    print(f"\nStarting server on http://{config.HOST}:{config.PORT}")
+    print(f"\nFrontend: http://localhost:{config.PORT}")
+    print(f"API Docs: http://localhost:{config.PORT}/docs")
+    print(f"WebSocket: ws://localhost:{config.PORT}/ws/progress/{{run_id}}")
     print("\n" + "=" * 80)
 
     uvicorn.run(

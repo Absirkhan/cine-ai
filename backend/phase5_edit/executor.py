@@ -159,13 +159,6 @@ class EditExecutor:
         print(f"   Scope: {intent.scope}")
         print(f"   Parameters: {intent.parameters}")
 
-        # Create snapshot before edit
-        state_manager.snapshot(
-            state,
-            f"Before edit: {intent.original_query}",
-            self._get_current_assets(state)
-        )
-
         # Execute based on intent type
         if intent.intent_type == "change_voice":
             state = self._change_voice(intent, state)

@@ -43,6 +43,7 @@ export interface Version {
   author: string;
   active?: boolean;
   changes: string[];
+  version_number?: number;
 }
 
 export interface EditTarget {

@@ -52,17 +52,17 @@ export function useProgressWebSocket({
           onPhaseUpdate(data.phase_id, data.status);
         }
       } catch (err) {
-        console.error('[WebSocket] Failed to parse message:', err);
+        // Silently ignore parse errors
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('[WebSocket] Error:', error);
+    ws.onerror = () => {
+      // Silently handle WebSocket errors - UI will show demo mode
       setState({ connected: false, error: new Error('WebSocket error') });
     };
 
     ws.onclose = () => {
-      console.log('[WebSocket] Connection closed');
+      // Silently handle WebSocket close - UI will show demo mode
       setState({ connected: false, error: null });
     };
 
